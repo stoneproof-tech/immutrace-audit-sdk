@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>IMMUTRACE — Audit Dashboard</title>
+<link rel="stylesheet" href="/_immutrace/dashboard/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="shield"></span>
+    <span><b>IMMUTRACE</b> Audit Dashboard</span>
+  </div>
+  <nav>
+    <button class="tab active" data-tab="sessions">Sessions</button>
+    <button class="tab" data-tab="events">Events</button>
+    <button class="tab" data-tab="anchors">On-chain anchors</button>
+  </nav>
+  <div class="actions">
+    <button id="refresh">↻ Refresh</button>
+    <button id="anchor-now" title="Force an on-chain anchor batch right now">⚓ Anchor pending</button>
+  </div>
+</header>
+
+<main>
+  <section id="tab-sessions" class="tab-panel active">
+    <h2>Investigation sessions</h2>
+    <p class="muted">Every analyst session is bound to a justification and a 30-min token. All HTTP requests during the session are hash-chained.</p>
+    <div id="sessions-list" class="grid"></div>
+  </section>
+
+  <section id="tab-events" class="tab-panel">
+    <h2>Audit events</h2>
+    <div class="filter-bar">
+      <label>Filter by session: <input id="filter-session" placeholder="session UUID"></label>
+      <label>Filter by case: <input id="filter-case" placeholder="CASE-..."></label>
+      <button id="apply-filter">Apply</button>
+      <button id="clear-filter">Clear</button>
+    </div>
+    <div id="events-list"></div>
+  </section>
+
+  <section id="tab-anchors" class="tab-panel">
+    <h2>On-chain anchors</h2>
+    <p class="muted">Merkle root batches submitted to Polygon Amoy testnet (or mocked locally if MOCK_ANCHOR=true).</p>
+    <div id="anchors-list"></div>
+  </section>
+</main>
+
+<dialog id="verify-dialog">
+  <div class="dlg">
+    <h3>Chain verification</h3>
+    <div id="verify-body"></div>
+    <button onclick="document.getElementById('verify-dialog').close()">Close</button>
+  </div>
+</dialog>
+
+<script src="/_immutrace/dashboard/app.js"></script>
+</body>
+</html>
