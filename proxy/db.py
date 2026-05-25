@@ -182,6 +182,14 @@ CREATE TABLE IF NOT EXISTS event_timestamps (
     verification_status TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_event_timestamps_event ON event_timestamps(event_id);
+
+-- ── Anchor worker error log (Step 7.6, unattended-operation hardening) ──────
+CREATE TABLE IF NOT EXISTS anchor_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    error_msg TEXT NOT NULL,
+    retry_count INTEGER NOT NULL
+);
 """
 
 

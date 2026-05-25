@@ -85,10 +85,8 @@ def _rpc(method: str, params: list):
     raise RuntimeError(f"all Polygon RPCs failed for {method}: {last}")
 
 
-def _nonce_consensus() -> int:
-    """Return the MAX pending nonce across all reachable RPCs. Defends against
-    flaky nodes returning a stale/zero nonce — signing with a too-low nonce would
-    replace/fail a tx. Requires at least one successful read."""
+def _collect_nonces() -> list:
+    """Pending nonce from every reachable RPC (for consensus / availability)."""
     addr = config.ANCHOR_WALLET_ADDRESS
     vals = []
     for url in _rpc_urls():
@@ -96,6 +94,13 @@ def _nonce_consensus() -> int:
             vals.append(int(_rpc_call(url, "eth_getTransactionCount", [addr, "pending"]), 16))
         except Exception:
             continue
+    return vals
+
+
+def _nonce_consensus() -> int:
+    """MAX pending nonce across RPCs — robust to flaky nodes returning a stale/
+    zero nonce (a too-low nonce would replace/fail a tx). Needs >=1 read."""
+    vals = _collect_nonces()
     if not vals:
         raise RuntimeError("no RPC returned a nonce")
     return max(vals)
@@ -326,27 +331,123 @@ async def log_anchor_event(rec: dict) -> None:
         pass
 
 
+# ── Worker state + hardening (Step 7.6, unattended mainnet operation) ───────
+# NOTE on "pending_retry": failed batches leave events PENDING (anchor_id NULL)
+# and are not re-attempted until the next interval. We track retries at the
+# worker level (not a per-event column) on purpose — the events table is
+# hash-chained, so adding a column would change every event's recomputed hash.
+_worker_state = {
+    "active": False, "mode": None, "last_anchor_at": None, "last_anchor_tx": None,
+    "last_error": None, "retry_count": 0, "stopped": False,
+}
+
+
+def _record_error(msg: str, retry_count: int) -> None:
+    conn = sqlite3.connect(str(config.DB_PATH))
+    try:
+        conn.execute("INSERT INTO anchor_errors(ts, error_msg, retry_count) VALUES (?,?,?)",
+                     (utcnow_iso(), str(msg)[:500], retry_count))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _preflight_mainnet() -> tuple:
+    """Return (ok, reason). Checks chain id, minimum balance, nonce availability."""
+    try:
+        cid = int(_rpc("eth_chainId", []), 16)
+    except Exception as e:
+        return False, f"chain_id read failed: {e}"
+    if cid != config.POLYGON_CHAIN_ID:
+        return False, f"wrong chain {cid} != {config.POLYGON_CHAIN_ID}"
+    try:
+        bal = int(_rpc("eth_getBalance", [config.ANCHOR_WALLET_ADDRESS, "latest"]), 16) / 1e18
+    except Exception as e:
+        return False, f"balance read failed: {e}"
+    if bal < config.ANCHOR_MIN_RESERVE_POL:
+        return False, f"LOW BALANCE {bal:.4f} POL < reserve {config.ANCHOR_MIN_RESERVE_POL} — refill needed"
+    if len(_collect_nonces()) < 2:
+        return False, "nonce consensus unavailable (< 2 RPCs responded)"
+    return True, "ok"
+
+
+def worker_status() -> dict:
+    """Current worker status (best-effort live balance/nonce for mainnet)."""
+    s = dict(_worker_state)
+    s["mode"] = "mock" if config.MOCK_ANCHOR else "mainnet"
+    s["balance_pol"], s["nonce"] = None, None
+    if not config.MOCK_ANCHOR:
+        try:
+            st = verify_mainnet_state()
+            s["balance_pol"] = round(st["balance_pol"], 6)
+            s["nonce"] = st["nonce"]
+        except Exception as e:
+            s["status_error"] = str(e)[:120]
+    return s
+
+
+def _try_anchor_once():
+    """One anchoring attempt with pre-flight + error/retry/stop bookkeeping.
+    Returns the anchor record on success, or None on skip/failure. Never raises.
+    Extracted from the worker loop so the robustness logic is unit-testable."""
+    if _worker_state["stopped"]:
+        return None
+    # Pre-flight (real mainnet only): chain id, min balance, nonce availability.
+    if not config.MOCK_ANCHOR:
+        ok, reason = _preflight_mainnet()
+        if not ok:
+            _worker_state["last_error"] = reason
+            _record_error("preflight: " + reason, _worker_state["retry_count"])
+            print(f"[anchor] pre-flight skip: {reason}")
+            return None
+    try:
+        rec = anchor_batch()
+    except Exception as e:
+        _worker_state["retry_count"] += 1
+        _worker_state["last_error"] = str(e)
+        _record_error(str(e), _worker_state["retry_count"])
+        print(f"[anchor] FAILED (retry {_worker_state['retry_count']}/"
+              f"{config.ANCHOR_MAX_RETRIES}): {e}")
+        if _worker_state["retry_count"] >= config.ANCHOR_MAX_RETRIES:
+            _worker_state["stopped"] = True
+            print("[anchor] WORKER STOPPED — manual intervention required "
+                  "(fix the issue and restart the proxy to resume).")
+        return None
+    # success → reset failure counters
+    _worker_state["retry_count"] = 0
+    _worker_state["last_error"] = None
+    if rec:
+        _worker_state["last_anchor_at"] = utcnow_iso()
+        _worker_state["last_anchor_tx"] = rec.get("tx_hash")
+    return rec
+
+
 async def anchor_worker():
-    """Background coroutine: anchor on size or interval, whichever first."""
+    """Background coroutine: anchor on size or interval. Hardened for unattended
+    mainnet use — pre-flight checks, never crashes on a failed send, stops after
+    ANCHOR_MAX_RETRIES consecutive failures (manual restart to resume)."""
+    _worker_state.update({"active": True, "stopped": False, "retry_count": 0,
+                          "mode": "mock" if config.MOCK_ANCHOR else "mainnet"})
     last_run = time.monotonic()
     while True:
         try:
             await asyncio.sleep(5)
+            if _worker_state["stopped"]:
+                continue
             pending = get_pending_events()
             now = time.monotonic()
-            should_anchor = (
-                len(pending) >= config.ANCHOR_BATCH_SIZE
-                or (pending and (now - last_run) >= config.ANCHOR_BATCH_INTERVAL)
-            )
-            if should_anchor:
-                rec = anchor_batch()
-                if rec:
-                    print(f"[anchor] {rec['chain']} root={rec['merkle_root'][:16]}... "
-                          f"events={rec['event_count']} tx={str(rec['tx_hash'])[:16]}...")
-                    await log_anchor_event(rec)
-                last_run = now
+            should = (len(pending) >= config.ANCHOR_BATCH_SIZE
+                      or (pending and (now - last_run) >= config.ANCHOR_BATCH_INTERVAL))
+            if not should:
+                continue
+            rec = await asyncio.to_thread(_try_anchor_once)  # blocking RPC/DB off the loop
+            last_run = now
+            if rec:
+                print(f"[anchor] {rec['chain']} root={rec['merkle_root'][:16]}... "
+                      f"events={rec['event_count']} tx={str(rec['tx_hash'])[:16]}...")
+                await log_anchor_event(rec)
         except Exception as e:
-            print(f"[anchor] error: {e}")
+            print(f"[anchor] worker loop error: {e}")
             await asyncio.sleep(30)
 
 

@@ -265,6 +265,17 @@ async def admin_keys_page():
     return HTMLResponse((DASHBOARD_DIR / "admin_keys.html").read_text(encoding="utf-8"))
 
 
+@router.get("/admin/worker/status")
+async def worker_status(_: dict = Depends(identity.require_admin)):
+    from . import anchor
+    return anchor.worker_status()
+
+
+@router.get("/admin/worker", response_class=HTMLResponse)
+async def worker_page():
+    return HTMLResponse((DASHBOARD_DIR / "worker.html").read_text(encoding="utf-8"))
+
+
 @router.get("/custodian/panel", response_class=HTMLResponse)
 async def custodian_panel_page():
     return HTMLResponse((DASHBOARD_DIR / "custodian.html").read_text(encoding="utf-8"))

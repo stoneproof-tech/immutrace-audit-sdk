@@ -78,6 +78,10 @@ POLYGON_RPC = _env("POLYGON_RPC", "")              # empty -> built-in keyless f
 POLYGON_CHAIN_ID = _env_int("POLYGON_CHAIN_ID", 137)
 ANCHOR_WALLET_ADDRESS = _env("ANCHOR_WALLET_ADDRESS",
                              "0x1Ec495d01e91a1929C651680cd7E5758dBF412C2")
+# Worker hardening: minimum wallet reserve before anchoring, and max consecutive
+# failures before the worker stops attempting (manual intervention required).
+ANCHOR_MIN_RESERVE_POL = float(_env("ANCHOR_MIN_RESERVE_POL", "0.05"))
+ANCHOR_MAX_RETRIES = _env_int("ANCHOR_MAX_RETRIES", 3)
 
 
 # ── Sensitive endpoints (loaded from external YAML, client-editable) ──────────
