@@ -7,7 +7,7 @@ import httpx
 import websockets
 from fastapi import Request, Response, WebSocket
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
-from . import config, auth, identity, workflow, keymgmt, encryption
+from . import config, auth, identity, workflow, keymgmt, encryption, timestamp
 from .chain import sha256_hex, chain_hash, canonical_event
 from .adapters import make_adapter, UpstreamError
 
@@ -127,10 +127,15 @@ async def log_event(
     # never stalls the event loop (which would otherwise time out concurrent
     # upstream reads when the browser fetches dozens of assets at once).
     async with _chain_lock:
-        return await asyncio.to_thread(_insert_event_sync, event, record_wrap)
+        this_hash, event_id = await asyncio.to_thread(_insert_event_sync, event, record_wrap)
+
+    # Timestamp eligible events in the background (non-blocking, eIDAS-ready).
+    if timestamp.should_timestamp(event_type, path):
+        asyncio.create_task(timestamp.timestamp_event_async(event_id, this_hash, path, event_type))
+    return this_hash
 
 
-def _insert_event_sync(event: dict, record_wrap=None) -> str:
+def _insert_event_sync(event: dict, record_wrap=None):
     """Blocking: read prev hash, compute this_hash, insert (and, if the event was
     encrypted, store its wrapped per-record key in the same transaction). Runs in
     a thread under _chain_lock so the read-then-insert is atomic and single-writer."""
@@ -155,11 +160,12 @@ def _insert_event_sync(event: dict, record_wrap=None) -> str:
              event["body_sha256"], event["response_status"], event["response_sha256"],
              event["remote_ip"], event["user_agent"], prev, this_hash),
         )
+        event_id = cur.lastrowid
         if record_wrap is not None:
             nonce, wrapped = record_wrap
-            encryption.insert_record_key(conn, cur.lastrowid, wrapped, nonce)
+            encryption.insert_record_key(conn, event_id, wrapped, nonce)
         conn.commit()
-        return this_hash
+        return this_hash, event_id
     finally:
         conn.close()
 

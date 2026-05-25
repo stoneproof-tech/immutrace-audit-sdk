@@ -165,6 +165,23 @@ CREATE TABLE IF NOT EXISTS record_keys (
     erased_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_record_keys_ref ON record_keys(record_table, record_id);
+
+-- ── Event timestamps (Step 6, eIDAS-ready) ─────────────────────────────────
+-- Each timestamped event gets a signed time token committing to its this_hash.
+-- provider 'local' = IMMUTRACE-native signed timestamp (NOT eIDAS-qualified);
+-- QTSP providers produce qualified RFC-3161 tokens (is_qualified=1) once active.
+CREATE TABLE IF NOT EXISTS event_timestamps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL REFERENCES events(id),
+    provider_name TEXT NOT NULL,
+    token BLOB NOT NULL,
+    timestamp_iso TEXT NOT NULL,
+    is_qualified INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    verified_at TEXT,
+    verification_status TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_event_timestamps_event ON event_timestamps(event_id);
 """
 
 

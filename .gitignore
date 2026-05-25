@@ -19,5 +19,7 @@ node_modules/
 # Custodian key material (Shamir) — never commit private/public PEMs
 demos/osiris/custodians/*.pem
 *.priv.pem
+# Local TSA signing key (Step 6 timestamp provider)
+data/*.key
 # Backup snapshots of the audit DB
 data/*.backup-*

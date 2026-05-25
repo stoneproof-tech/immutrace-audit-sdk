@@ -1,5 +1,13 @@
 """Custodian backends for Shamir key custody.
 
+╔════════════════════════════════════════════════════════════════════════════╗
+║ DEMO SIMULATION — production requires RemoteCustodianBackend with separate    ║
+║ parties holding their own private keys OFFLINE. The LocalCustodianBackend     ║
+║ keeps all 5 custodian private keys on ONE machine, so that machine can        ║
+║ reconstruct the master key alone. This defeats the "no single party" property ║
+║ and exists ONLY for the demo. See SECURITY_MODEL.md (Step 9).                  ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
 A CustodianBackend abstracts WHO holds the Shamir fragments and HOW a fragment
 is decrypted for reassembly. Two backends:
 

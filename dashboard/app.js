@@ -78,7 +78,7 @@ async function loadEvents(sessionId, caseId) {
   let html = `<table class="events">
     <thead><tr>
       <th>#</th><th>Timestamp UTC</th><th>Session</th><th>Actor</th>
-      <th>Type</th><th>Method</th><th>Path</th><th>Status</th><th>Hash</th>
+      <th>Type</th><th>Method</th><th>Path</th><th>Status</th><th>eIDAS</th><th>Hash</th>
     </tr></thead><tbody>`;
   // events come newest-first; render in given order
   for (const e of data.events) {
@@ -91,12 +91,34 @@ async function loadEvents(sessionId, caseId) {
       <td>${escapeHtml(e.method || "")}</td>
       <td class="mono">${escapeHtml((e.path || "").slice(0, 50))}</td>
       <td class="${statusClass(e.response_status)}">${e.response_status ?? "—"}</td>
+      <td style="cursor:pointer" title="click to verify" onclick="verifyTimestamp(${e.id})">${tsCell(e)}</td>
       <td class="mono" title="${escapeHtml(e.this_hash)}">${escapeHtml(e.this_hash?.slice(0, 12))}…</td>
     </tr>`;
   }
   html += "</tbody></table>";
   list.innerHTML = html;
 }
+
+function tsCell(e) {
+  if (!e.ts_provider) return '<span style="color:#8a93a6">—</span>';
+  if (e.ts_qualified)
+    return `<span style="color:#1f9d57" title="eIDAS qualified (${escapeHtml(e.ts_provider)})">🛡 eIDAS</span>`;
+  return `<span style="color:#8aa0b8" title="local signed timestamp (${escapeHtml(e.ts_provider)})">🕒 local</span>`;
+}
+
+async function verifyTimestamp(id) {
+  try {
+    const r = await fetch(`/_immutrace/audit/events/${id}/verify-timestamp`,
+      { method: "POST", credentials: "same-origin" });
+    const j = await r.json();
+    if (j.ok) {
+      alert(`Timestamp VALID\nprovider: ${j.provider}\nqualified (eIDAS): ${j.is_qualified}\ntime: ${j.timestamp_iso}`);
+    } else {
+      alert(`Timestamp: ${j.status || j.error || "no timestamp for this event"}`);
+    }
+  } catch (e) { alert("Error: " + e.message); }
+}
+window.verifyTimestamp = verifyTimestamp;
 
 async function loadAnchors() {
   const data = await api("/_immutrace/audit/anchors");

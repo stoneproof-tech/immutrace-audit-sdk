@@ -108,6 +108,19 @@ async def audit_events(session_id: Optional[str] = None, case_id: Optional[str] 
         cur = conn.execute(sql, params)
         # Decrypt encrypted fields for display (erased -> [ERASED], locked -> [LOCKED]).
         rows = [encryption.decrypt_event_fields(dict(r)) for r in cur.fetchall()]
+        # Attach per-event timestamp summary (batch query, no N+1).
+        ids = [r["id"] for r in rows]
+        tmap = {}
+        if ids:
+            ph = ",".join("?" * len(ids))
+            for tr in conn.execute(
+                f"SELECT event_id, provider_name, is_qualified FROM event_timestamps "
+                f"WHERE event_id IN ({ph})", ids):
+                tmap[tr[0]] = {"provider": tr[1], "qualified": bool(tr[2])}
+        for r in rows:
+            t = tmap.get(r["id"])
+            r["ts_provider"] = t["provider"] if t else None
+            r["ts_qualified"] = t["qualified"] if t else False
         return {"events": rows, "count": len(rows)}
     finally:
         conn.close()
@@ -144,19 +157,26 @@ async def audit_anchors():
 
 @router.get("/audit/verify/{session_id}")
 async def audit_verify(session_id: str):
+    # The hash chain is GLOBAL (each event's prev_hash links to the immediately
+    # preceding event across ALL sessions). Events from different sessions /
+    # background tasks (timestamps, approvals) interleave, so a session's events
+    # are not contiguous — verifying a per-session subset's prev_hash linkage is
+    # wrong. We verify the whole chain: a session's events are intact iff the
+    # global chain is intact.
     conn = sqlite3.connect(str(config.DB_PATH))
     conn.row_factory = sqlite3.Row
     try:
-        cur = conn.execute(
-            "SELECT * FROM events WHERE session_id = ? ORDER BY id ASC",
-            (session_id,),
-        )
-        rows = [dict(r) for r in cur.fetchall()]
+        all_rows = [dict(r) for r in conn.execute("SELECT * FROM events ORDER BY id ASC")]
+        sess_n = conn.execute("SELECT COUNT(*) FROM events WHERE session_id=?",
+                              (session_id,)).fetchone()[0]
     finally:
         conn.close()
-    if not rows:
+    if sess_n == 0:
         return {"ok": False, "error": "no events for session", "count": 0}
-    result = verify_chain(rows)
+    result = verify_chain(all_rows)
+    result["session_id"] = session_id
+    result["session_events"] = sess_n
+    result["count"] = len(all_rows)
     return result
 
 
