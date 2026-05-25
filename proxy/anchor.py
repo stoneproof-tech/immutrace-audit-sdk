@@ -202,13 +202,24 @@ ANCHOR_ABI = [
 ]
 
 
+# System/self-generated event types are EXCLUDED from anchor batches to avoid a
+# self-feeding loop: anchoring used to emit an 'anchor_posted' event, which became
+# pending, which triggered another anchor, forever (real POL each cycle). These
+# events are still in the global hash chain (auditable) — they're just not anchored
+# directly into a merkle batch.
+SYSTEM_EVENT_TYPES = ("anchor_posted", "event_timestamped", "gdpr_erasure")
+
+
 def get_pending_events() -> list[dict]:
-    """Fetch events with anchor_id IS NULL, ordered by id."""
+    """Fetch un-anchored, NON-system events (anchor_id IS NULL), ordered by id."""
+    placeholders = ",".join("?" * len(SYSTEM_EVENT_TYPES))
     conn = sqlite3.connect(str(config.DB_PATH))
     conn.row_factory = sqlite3.Row
     try:
         cur = conn.execute(
-            "SELECT id, this_hash FROM events WHERE anchor_id IS NULL ORDER BY id ASC"
+            f"SELECT id, this_hash FROM events WHERE anchor_id IS NULL "
+            f"AND event_type NOT IN ({placeholders}) ORDER BY id ASC",
+            SYSTEM_EVENT_TYPES,
         )
         return [{"id": r["id"], "hash": r["this_hash"]} for r in cur.fetchall()]
     finally:
