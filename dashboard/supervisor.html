@@ -28,7 +28,16 @@
 <body>
 <header>
   <h1>◆ IMMUTRACE — Approval queue</h1>
-  <span class="who" id="who"></span>
+  <label style="margin-left:16px;color:#98a8c5;font-size:13px">Status:
+    <select id="statusFilter" style="background:#0a142a;color:#e6edf7;border:1px solid #233a6f;border-radius:6px;padding:4px 8px">
+      <option value="pending">pending</option>
+      <option value="approved">approved</option>
+      <option value="rejected">rejected</option>
+      <option value="expired">expired</option>
+      <option value="all">all</option>
+    </select>
+  </label>
+  <span class="who" id="who" style="margin-left:auto"></span>
 </header>
 <main id="main"><div class="empty">Loading…</div></main>
 <script>
@@ -41,29 +50,34 @@ async function load(){
   if(!u.authenticated){ main.innerHTML='<div class="err">Not logged in. Open the dashboard or the main app to sign in.</div>'; return; }
   who.textContent = `${u.username} (${u.role})`;
   if(u.role!=="supervisor" && u.role!=="admin"){ main.innerHTML='<div class="err">Supervisor or admin role required.</div>'; return; }
-  const r = await F("/_immutrace/approval/queue");
+  const status = document.getElementById("statusFilter").value;
+  const r = await F("/_immutrace/approval/queue?status="+encodeURIComponent(status));
   if(r.status!==200){ main.innerHTML='<div class="err">Could not load queue ('+r.status+').</div>'; return; }
-  const pend = (await r.json()).pending||[];
+  const reqs = (await r.json()).requests||[];
   main.innerHTML="";
-  if(!pend.length){ main.append(el("div",{cls:"empty"},"No pending requests.")); return; }
-  for(const q of pend){
+  if(!reqs.length){ main.append(el("div",{cls:"empty"},`No ${status} requests.`)); return; }
+  for(const q of reqs){
     const card = el("div",{cls:"card"});
-    card.append(
-      el("div",{cls:"row"},
-        el("span",{cls:"pfx"}, q.endpoint_prefix),
-        el("span",{cls:"urg "+q.urgency}, q.urgency),
-        el("span",{cls:"grow"}),
-        el("button",{cls:"approve"},"Approve"),
-        el("button",{cls:"reject"},"Reject")),
+    const head = el("div",{cls:"row"},
+      el("span",{cls:"pfx"}, q.endpoint_prefix),
+      el("span",{cls:"urg "+q.urgency}, q.urgency),
+      el("span",{cls:"urg"}, q.status),
+      el("span",{cls:"grow"}));
+    if(q.status==="pending"){
+      head.append(el("button",{cls:"approve"},"Approve"), el("button",{cls:"reject"},"Reject"));
+    }
+    card.append(head,
       el("div",{cls:"just"}, q.justification),
-      el("div",{cls:"meta"}, `#${q.id} · requested by ${q.requester} · ${q.requested_at}` + (q.case_id?` · case ${q.case_id}`:""))
-    );
+      el("div",{cls:"meta"}, `#${q.id} · by ${q.requester} · ${q.requested_at}`
+        + (q.case_id?` · case ${q.case_id}`:"")
+        + (q.decision_note?` · note: “${q.decision_note}”`:"")));
     const btns = card.querySelectorAll("button");
-    btns[0].onclick = async ()=>{ const note=prompt("Approval note (optional):","")??""; const rr=await F(`/_immutrace/approval/${q.id}/approve`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note})}); if(rr.ok) load(); else alert("Approve failed: "+rr.status); };
-    btns[1].onclick = async ()=>{ const note=prompt("Reason for rejection:","")??""; const rr=await F(`/_immutrace/approval/${q.id}/reject`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note})}); if(rr.ok) load(); else alert("Reject failed: "+rr.status); };
+    if(btns[0]) btns[0].onclick = async ()=>{ const note=prompt("Approval note (optional):","")??""; const rr=await F(`/_immutrace/approval/${q.id}/approve`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note})}); if(rr.ok) load(); else alert("Approve failed: "+rr.status); };
+    if(btns[1]) btns[1].onclick = async ()=>{ const note=prompt("Reason for rejection:","")??""; const rr=await F(`/_immutrace/approval/${q.id}/reject`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note})}); if(rr.ok) load(); else alert("Reject failed: "+rr.status); };
     main.append(card);
   }
 }
+document.addEventListener("DOMContentLoaded", ()=>{ document.getElementById("statusFilter").addEventListener("change", load); });
 load();
 setInterval(load, 10000);
 </script>

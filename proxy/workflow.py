@@ -83,6 +83,15 @@ def list_my(user_id: int) -> List[Dict[str, Any]]:
                  "ORDER BY requested_at DESC LIMIT 100", (user_id,))
 
 
+def list_requests(status: Optional[str] = None) -> List[Dict[str, Any]]:
+    """All requests (optionally filtered by status), newest first, with requester."""
+    base = ("SELECT r.*, u.username AS requester FROM approval_requests r "
+            "JOIN users u ON u.id = r.requester_user_id")
+    if status:
+        return _rows(base + " WHERE r.status = ? ORDER BY r.requested_at DESC LIMIT 200", (status,))
+    return _rows(base + " ORDER BY r.requested_at DESC LIMIT 200")
+
+
 def get_request(rid: int) -> Optional[Dict[str, Any]]:
     rows = _rows("SELECT * FROM approval_requests WHERE id = ?", (rid,))
     return rows[0] if rows else None
@@ -210,8 +219,11 @@ async def create(req: RequestReq, request: Request, user: dict = Depends(identit
 
 
 @router.get("/queue")
-async def queue(_: dict = Depends(identity.require_supervisor)):
-    return {"pending": list_pending()}
+async def queue(status: str = "pending", _: dict = Depends(identity.require_supervisor)):
+    # 'pending' key kept for backward compatibility; 'requests' honors the filter
+    # (pending|approved|rejected|expired|all).
+    filtered = list_requests(None if status == "all" else status)
+    return {"status": status, "requests": filtered, "pending": list_pending()}
 
 
 @router.get("/my")

@@ -32,8 +32,21 @@
   <section id="tab-events" class="tab-panel">
     <h2>Audit events</h2>
     <div class="filter-bar">
-      <label>Filter by session: <input id="filter-session" placeholder="session UUID"></label>
-      <label>Filter by case: <input id="filter-case" placeholder="CASE-..."></label>
+      <label>Session: <input id="filter-session" placeholder="session UUID"></label>
+      <label>Case: <input id="filter-case" placeholder="CASE-..."></label>
+      <label>User: <input id="filter-actor" placeholder="actor/username"></label>
+      <label>Risk:
+        <select id="filter-risk">
+          <option value="">any</option>
+          <option value="critical">critical</option>
+          <option value="high">high</option>
+          <option value="medium">medium</option>
+          <option value="low">low</option>
+          <option value="none">none</option>
+        </select>
+      </label>
+      <label>From: <input id="filter-from" placeholder="2026-05-01" size="12"></label>
+      <label>To: <input id="filter-to" placeholder="2026-06-01" size="12"></label>
       <button id="apply-filter">Apply</button>
       <button id="clear-filter">Clear</button>
     </div>

@@ -64,10 +64,14 @@ async function loadSessions() {
   }
 }
 
-async function loadEvents(sessionId, caseId) {
+async function loadEvents(sessionId, caseId, actor, risk, tsFrom, tsTo) {
   const params = new URLSearchParams();
   if (sessionId) params.set("session_id", sessionId);
   if (caseId) params.set("case_id", caseId);
+  if (actor) params.set("actor", actor);
+  if (risk) params.set("risk", risk);
+  if (tsFrom) params.set("ts_from", tsFrom);
+  if (tsTo) params.set("ts_to", tsTo);
   params.set("limit", "300");
   const data = await api("/_immutrace/audit/events?" + params.toString());
   const list = $("#events-list");
@@ -213,11 +217,16 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#apply-filter").addEventListener("click", () => {
     loadEvents($("#filter-session").value.trim() || null,
-               $("#filter-case").value.trim() || null);
+               $("#filter-case").value.trim() || null,
+               $("#filter-actor").value.trim() || null,
+               $("#filter-risk").value || null,
+               $("#filter-from").value.trim() || null,
+               $("#filter-to").value.trim() || null);
   });
   $("#clear-filter").addEventListener("click", () => {
-    $("#filter-session").value = "";
-    $("#filter-case").value = "";
+    ["#filter-session", "#filter-case", "#filter-actor", "#filter-from", "#filter-to"]
+      .forEach(s => { $(s).value = ""; });
+    $("#filter-risk").value = "";
     loadEvents();
   });
   switchTab("sessions");

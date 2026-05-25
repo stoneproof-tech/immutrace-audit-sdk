@@ -88,7 +88,11 @@ async def session_end(request: Request):
 
 @router.get("/audit/events")
 async def audit_events(session_id: Optional[str] = None, case_id: Optional[str] = None,
+                       actor: Optional[str] = None, risk: Optional[str] = None,
+                       ts_from: Optional[str] = None, ts_to: Optional[str] = None,
                        limit: int = 500):
+    """Audit events with filters: session_id, case_id, actor, risk level
+    (critical|high|medium|low|none), and ISO date range (ts_from/ts_to)."""
     conn = sqlite3.connect(str(config.DB_PATH))
     conn.row_factory = sqlite3.Row
     try:
@@ -96,18 +100,26 @@ async def audit_events(session_id: Optional[str] = None, case_id: Optional[str] 
         params = []
         where = []
         if session_id:
-            where.append("session_id = ?")
-            params.append(session_id)
+            where.append("session_id = ?"); params.append(session_id)
         if case_id:
-            where.append("case_id = ?")
-            params.append(case_id)
+            where.append("case_id = ?"); params.append(case_id)
+        if actor:
+            where.append("actor = ?"); params.append(actor)
+        if ts_from:
+            where.append("ts >= ?"); params.append(ts_from)
+        if ts_to:
+            where.append("ts <= ?"); params.append(ts_to)
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
         cur = conn.execute(sql, params)
+        # risk is derived from the path (not a column) -> filter in Python.
+        rows_raw = [dict(r) for r in cur.fetchall()]
+        if risk:
+            rows_raw = [r for r in rows_raw if config.risk_level(r.get("path") or "") == risk.lower()]
         # Decrypt encrypted fields for display (erased -> [ERASED], locked -> [LOCKED]).
-        rows = [encryption.decrypt_event_fields(dict(r)) for r in cur.fetchall()]
+        rows = [encryption.decrypt_event_fields(r) for r in rows_raw]
         # Attach per-event timestamp summary (batch query, no N+1).
         ids = [r["id"] for r in rows]
         tmap = {}
