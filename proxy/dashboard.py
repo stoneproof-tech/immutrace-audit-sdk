@@ -226,6 +226,7 @@ async def anchor_now():
     rec = anchor.anchor_batch()
     if not rec:
         return {"ok": False, "message": "no pending events"}
+    await anchor.log_anchor_event(rec)
     return {"ok": True, "anchor": rec}
 
 

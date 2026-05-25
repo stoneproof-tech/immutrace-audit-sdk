@@ -61,7 +61,8 @@ AUTH_TTL = _env_int("AUTH_TOKEN_TTL_SECONDS", 1800)
 ADMIN_USER = _env("ADMIN_USER", "admin")
 ADMIN_PASSWORD = _env("ADMIN_PASSWORD", "demo")
 
-# Polygon (anchoring). Amoy testnet by default; mainnet only when explicitly set.
+# Polygon (anchoring). MOCK by default; real Polygon MAINNET only when MOCK_ANCHOR
+# is explicitly false (Step 7 uses the CALLDATA self-transfer pattern).
 MOCK_ANCHOR = _env_bool("MOCK_ANCHOR", True)
 AMOY_RPC = _env("AMOY_RPC", "https://rpc-amoy.polygon.technology")
 AMOY_CHAIN_ID = _env_int("AMOY_CHAIN_ID", 80002)
@@ -70,6 +71,13 @@ ANCHOR_ADDRESS = _env("ANCHOR_ADDRESS", "")
 ANCHOR_CONTRACT = _env("ANCHOR_CONTRACT", "")
 ANCHOR_BATCH_SIZE = _env_int("ANCHOR_BATCH_SIZE", 100)
 ANCHOR_BATCH_INTERVAL = _env_int("ANCHOR_BATCH_INTERVAL_SECONDS", 300)
+
+# Polygon mainnet (Step 7 — real CALLDATA anchoring, continuity with the 17
+# historical anchors: self-transfer with data "immutrace-ledgereye-audit:<root>").
+POLYGON_RPC = _env("POLYGON_RPC", "")              # empty -> built-in keyless fallback
+POLYGON_CHAIN_ID = _env_int("POLYGON_CHAIN_ID", 137)
+ANCHOR_WALLET_ADDRESS = _env("ANCHOR_WALLET_ADDRESS",
+                             "0x1Ec495d01e91a1929C651680cd7E5758dBF412C2")
 
 
 # ── Sensitive endpoints (loaded from external YAML, client-editable) ──────────

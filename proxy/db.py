@@ -194,6 +194,12 @@ def init_sync():
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.executescript(SCHEMA)
+    # Idempotent additive migration: extend the existing anchors table (Step 7).
+    for col, decl in (("gas_used", "INTEGER"), ("chain_id", "INTEGER"), ("status", "TEXT")):
+        try:
+            conn.execute(f"ALTER TABLE anchors ADD COLUMN {col} {decl}")
+        except sqlite3.OperationalError:
+            pass  # column already exists
     conn.commit()
     conn.close()
 

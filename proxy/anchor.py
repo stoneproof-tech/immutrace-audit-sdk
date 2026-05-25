@@ -1,8 +1,10 @@
-"""Polygon Amoy testnet anchor worker (with mock fallback)."""
+"""Anchor worker: mock (default), Polygon mainnet (CALLDATA), or Amoy (legacy)."""
 import asyncio
 import hashlib
+import json
 import sqlite3
 import time
+import urllib.request
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 from pathlib import Path
@@ -12,6 +14,128 @@ from .chain import merkle_root
 
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+# ── Polygon MAINNET, CALLDATA pattern (Step 7) ──────────────────────────────
+# Continuity with the 17 historical anchors: a 0-value self-transfer whose input
+# data is "immutrace-ledgereye-audit:<sha256_hex_root>".
+PAYLOAD_PREFIX = "immutrace-ledgereye-audit:"
+# Keyless public mainnet RPCs (best-effort). For production, set POLYGON_RPC to a
+# dedicated endpoint (Alchemy/Infura/QuickNode) — public RPCs rate-limit/403.
+_MAINNET_FALLBACK_RPCS = [
+    "https://1rpc.io/matic",
+    "https://polygon.drpc.org",
+    "https://polygon.blockpi.network/v1/rpc/public",
+    "https://endpoints.omniatech.io/v1/matic/mainnet/public",
+    "https://polygon.gateway.tenderly.co",
+    "https://polygon-bor-rpc.publicnode.com",
+    "https://rpc.polygon.fraxfinance.com",
+]
+
+
+def build_anchor_payload(root_hex: str) -> str:
+    """The exact input-data string anchored on-chain (matches the 17 prior tx)."""
+    return PAYLOAD_PREFIX + root_hex
+
+
+def _payload_hex(root_hex: str) -> str:
+    return "0x" + build_anchor_payload(root_hex).encode("utf-8").hex()
+
+
+def _rpc_urls() -> list[str]:
+    urls = []
+    if config.POLYGON_RPC:
+        urls.append(config.POLYGON_RPC)
+    urls.extend(_MAINNET_FALLBACK_RPCS)
+    return urls
+
+
+def _rpc(method: str, params: list):
+    """Minimal JSON-RPC over the mainnet RPC(s) with fallback + one retry pass
+    (public RPCs rate-limit, so a brief retry over the full list usually clears)."""
+    last = None
+    for attempt in range(2):
+        for url in _rpc_urls():
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
+                    headers={"Content-Type": "application/json",
+                             "User-Agent": "immutrace-anchor/1.0"})
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    j = json.load(r)
+                if "error" in j:
+                    raise RuntimeError(j["error"])
+                return j["result"]
+            except Exception as e:
+                last = e
+                continue
+        time.sleep(1.5)  # brief backoff before the second pass
+    raise RuntimeError(f"all Polygon RPCs failed for {method}: {last}")
+
+
+def verify_mainnet_state() -> dict:
+    """Read-only pre-flight: chain id, wallet balance, pending nonce."""
+    addr = config.ANCHOR_WALLET_ADDRESS
+    cid = int(_rpc("eth_chainId", []), 16)
+    bal = int(_rpc("eth_getBalance", [addr, "latest"]), 16)
+    nonce = int(_rpc("eth_getTransactionCount", [addr, "pending"]), 16)
+    return {"chain_id": cid, "wallet": addr, "balance_pol": bal / 1e18,
+            "balance_wei": bal, "nonce": nonce, "chain_ok": cid == config.POLYGON_CHAIN_ID}
+
+
+def estimate_anchor(root_hex: str) -> dict:
+    """DRY-RUN: build payload, estimate gas + price + cost. Sends NOTHING."""
+    addr = config.ANCHOR_WALLET_ADDRESS
+    payload = build_anchor_payload(root_hex)
+    data_hex = _payload_hex(root_hex)
+    gas = int(_rpc("eth_estimateGas",
+                   [{"from": addr, "to": addr, "value": "0x0", "data": data_hex}]), 16)
+    gas_price = int(_rpc("eth_gasPrice", []), 16)
+    nonce = int(_rpc("eth_getTransactionCount", [addr, "pending"]), 16)
+    cost_wei = gas * gas_price
+    return {"payload": payload, "data_hex": data_hex, "gas": gas,
+            "gas_price_gwei": gas_price / 1e9, "cost_pol": cost_wei / 1e18,
+            "nonce": nonce}
+
+
+def submit_anchor_mainnet(root_hex: str) -> dict:
+    """Sign + send ONE real mainnet anchor tx, wait for the receipt. Sends REAL POL.
+
+    Refuses to send unless the configured private key actually controls
+    ANCHOR_WALLET_ADDRESS (so we never sign from the wrong wallet)."""
+    from eth_account import Account
+    acct = Account.from_key(config.ANCHOR_PRIVATE_KEY)
+    if acct.address.lower() != config.ANCHOR_WALLET_ADDRESS.lower():
+        raise RuntimeError(
+            f"refusing to send: ANCHOR_PRIVATE_KEY controls {acct.address}, "
+            f"not the anchor wallet {config.ANCHOR_WALLET_ADDRESS}")
+    state = verify_mainnet_state()
+    if not state["chain_ok"]:
+        raise RuntimeError(f"chain id {state['chain_id']} != {config.POLYGON_CHAIN_ID}")
+    gas_price = int(_rpc("eth_gasPrice", []), 16)
+    data_hex = _payload_hex(root_hex)
+    gas = int(_rpc("eth_estimateGas",
+                   [{"from": acct.address, "to": acct.address, "value": "0x0", "data": data_hex}]), 16)
+    tx = {"nonce": state["nonce"], "to": acct.address, "value": 0,
+          "data": data_hex, "gas": int(gas * 1.25), "gasPrice": gas_price,
+          "chainId": config.POLYGON_CHAIN_ID}
+    signed = acct.sign_transaction(tx)
+    raw = signed.raw_transaction if hasattr(signed, "raw_transaction") else signed.rawTransaction
+    tx_hash = _rpc("eth_sendRawTransaction", ["0x" + raw.hex()])
+    # poll for the receipt
+    receipt = None
+    for _ in range(60):
+        receipt = _rpc("eth_getTransactionReceipt", [tx_hash])
+        if receipt:
+            break
+        time.sleep(3)
+    if not receipt:
+        return {"tx_hash": tx_hash, "block_number": None, "gas_used": None, "status": "pending"}
+    return {"tx_hash": tx_hash,
+            "block_number": int(receipt["blockNumber"], 16),
+            "gas_used": int(receipt["gasUsed"], 16),
+            "status": "confirmed" if receipt.get("status") == "0x1" else "failed"}
 
 
 # Minimal ABI for the IMMUTRACEAnchor contract (anchor + Anchored event)
@@ -110,18 +234,30 @@ def anchor_batch() -> Optional[dict]:
 
     hashes = [e["hash"] for e in pending]
     root = merkle_root(hashes)
-    chain = "mock" if config.MOCK_ANCHOR else "polygon-amoy"
 
-    tx_hash, block_number = submit_anchor(root)
+    if config.MOCK_ANCHOR:
+        chain = "mock"
+        tx_hash, block_number = submit_anchor(root)
+        gas_used, chain_id, status, confirmed = None, None, "mock", 1
+    else:
+        chain = "polygon-mainnet"
+        res = submit_anchor_mainnet(root)   # sends a REAL tx
+        tx_hash = res["tx_hash"]
+        block_number = res["block_number"]
+        gas_used = res["gas_used"]
+        chain_id = config.POLYGON_CHAIN_ID
+        status = res["status"]
+        confirmed = 1 if status == "confirmed" else 0
 
     conn = sqlite3.connect(str(config.DB_PATH))
     try:
         cur = conn.execute(
             "INSERT INTO anchors (merkle_root, event_count, first_event_id, "
-            "last_event_id, submitted_at, chain, tx_hash, block_number, confirmed) "
-            "VALUES (?,?,?,?,?,?,?,?,1)",
+            "last_event_id, submitted_at, chain, tx_hash, block_number, confirmed, "
+            "gas_used, chain_id, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (root, len(hashes), pending[0]["id"], pending[-1]["id"],
-             utcnow_iso(), chain, tx_hash, block_number),
+             utcnow_iso(), chain, tx_hash, block_number, confirmed,
+             gas_used, chain_id, status),
         )
         anchor_id = cur.lastrowid
         ids = [e["id"] for e in pending]
@@ -141,7 +277,26 @@ def anchor_batch() -> Optional[dict]:
         "tx_hash": tx_hash,
         "block_number": block_number,
         "chain": chain,
+        "gas_used": gas_used,
+        "status": status,
     }
+
+
+async def log_anchor_event(rec: dict) -> None:
+    """Record a successful anchor as an auditable 'anchor_posted' chain event."""
+    try:
+        from . import proxy as proxy_mod  # lazy: avoid circular import
+        sess = {"session_id": "system", "actor": "immutrace", "case_id": "",
+                "activity_type": "ANCHOR",
+                "justification": f"{rec['chain']} anchor of {rec['event_count']} events "
+                                 f"(tx {str(rec.get('tx_hash',''))[:18]})"}
+        await proxy_mod.log_event(
+            session=sess, event_type="anchor_posted", method="POST",
+            path="/_immutrace/anchor", query="", body_bytes=b"",
+            response_status=200, response_bytes=b"", remote_ip="system",
+            user_agent="immutrace-anchor")
+    except Exception:
+        pass
 
 
 async def anchor_worker():
@@ -160,7 +315,8 @@ async def anchor_worker():
                 rec = anchor_batch()
                 if rec:
                     print(f"[anchor] {rec['chain']} root={rec['merkle_root'][:16]}... "
-                          f"events={rec['event_count']} tx={rec['tx_hash'][:16]}...")
+                          f"events={rec['event_count']} tx={str(rec['tx_hash'])[:16]}...")
+                    await log_anchor_event(rec)
                 last_run = now
         except Exception as e:
             print(f"[anchor] error: {e}")
