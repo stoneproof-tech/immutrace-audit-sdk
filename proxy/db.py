@@ -103,6 +103,52 @@ CREATE TABLE IF NOT EXISTS approval_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_requests(status);
 CREATE INDEX IF NOT EXISTS idx_approval_requester ON approval_requests(requester_user_id);
+
+-- ── Shamir key custody (Step 4) ────────────────────────────────────────────
+-- The master key (used by AES-GCM in Step 5) is never stored in plaintext: it
+-- is split k-of-n across custodians. Each custodian holds an RSA keypair; their
+-- Shamir fragment is stored RSA-encrypted to their public key. Reconstruction
+-- needs k custodians and happens in RAM only (master key never persisted).
+CREATE TABLE IF NOT EXISTS custodians (
+    id INTEGER PRIMARY KEY,              -- Shamir share index (1-based)
+    name TEXT NOT NULL,
+    role_label TEXT NOT NULL,            -- e.g. notaio / avvocato / revisore
+    username TEXT,                       -- linked login user (role 'custodian')
+    public_pem TEXT NOT NULL,
+    is_local INTEGER NOT NULL DEFAULT 1  -- 1 = local simulated, 0 = remote/real
+);
+
+CREATE TABLE IF NOT EXISTS key_shards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    custodian_id INTEGER NOT NULL REFERENCES custodians(id),
+    share_index INTEGER NOT NULL,
+    share_data_encrypted BLOB NOT NULL,  -- RSA-OAEP(indexed fragment) to custodian pubkey
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','revoked'))
+);
+CREATE INDEX IF NOT EXISTS idx_key_shards_custodian ON key_shards(custodian_id);
+
+CREATE TABLE IF NOT EXISTS key_reassembly_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    requester_user_id INTEGER NOT NULL REFERENCES users(id),
+    requested_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','complete','failed')),
+    shares_collected INTEGER NOT NULL DEFAULT 0,
+    threshold INTEGER NOT NULL,
+    completed_at TEXT
+);
+
+-- Singleton metadata for the current master key: a SHA-256 of the key lets us
+-- verify a reassembly reconstructed the SAME key (detects fake/corrupted shares).
+-- The key itself is NEVER stored — only its hash.
+CREATE TABLE IF NOT EXISTS key_meta (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    master_sha256 TEXT NOT NULL,
+    threshold INTEGER NOT NULL,
+    num_shares INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 

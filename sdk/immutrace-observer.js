@@ -106,6 +106,12 @@
       if (currentUser.role === "supervisor" || currentUser.role === "admin") {
         bannerEl.append($("a", { href: "/_immutrace/supervisor/queue", target: "_blank" }, "Approval queue ↗"));
       }
+      if (currentUser.role === "admin") {
+        bannerEl.append($("a", { href: "/_immutrace/admin/keys", target: "_blank" }, "Key custody ↗"));
+      }
+      if (currentUser.role === "custodian") {
+        bannerEl.append($("a", { href: "/_immutrace/custodian/panel", target: "_blank" }, "Custodian panel ↗"));
+      }
       bannerEl.append(
         $("a", { href: "/_immutrace/analyst/requests", target: "_blank" }, "My requests ↗"),
         $("span", { style: { color: "#bcd6ff", fontWeight: "600" } },

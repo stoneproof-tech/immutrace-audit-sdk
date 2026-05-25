@@ -5,7 +5,8 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from contextlib import asynccontextmanager
 
 from . import (config, db, proxy as proxy_mod, dashboard as dash_mod,
-               anchor as anchor_mod, identity as identity_mod, workflow as workflow_mod)
+               anchor as anchor_mod, identity as identity_mod, workflow as workflow_mod,
+               keymgmt as keymgmt_mod)
 
 # Initialize DB schema
 db.init_sync()
@@ -15,6 +16,8 @@ db.init_sync()
 async def lifespan(app: FastAPI):
     # Seed bootstrap/demo users if the users table is empty
     identity_mod.seed_users()
+    # If a master key has been set up, reconstruct it into RAM (local custodians)
+    keymgmt_mod.auto_unlock()
     # Start the anchor worker
     task = asyncio.create_task(anchor_mod.anchor_worker())
     print(f"[immutrace] proxy listening on http://{config.PROXY_HOST}:{config.PROXY_PORT}")
@@ -38,6 +41,7 @@ app = FastAPI(
 app.include_router(dash_mod.router)
 app.include_router(identity_mod.router)
 app.include_router(workflow_mod.router)
+app.include_router(keymgmt_mod.router)
 
 
 @app.get("/_immutrace/health")
