@@ -16,6 +16,13 @@ def utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# MAINNET ANCHORING: code ready, requires ANCHOR_PRIVATE_KEY for wallet
+# 0x1Ec495d01e91a1929C651680cd7E5758dBF412C2. Currently in MOCK mode.
+# Activation: set MOCK_ANCHOR=false in .env once the key is configured.
+# 17 historical anchors already on mainnet prove the pattern works.
+# (submit_anchor_mainnet refuses to sign unless the key controls that wallet.)
+# ════════════════════════════════════════════════════════════════════════════
 # ── Polygon MAINNET, CALLDATA pattern (Step 7) ──────────────────────────────
 # Continuity with the 17 historical anchors: a 0-value self-transfer whose input
 # data is "immutrace-ledgereye-audit:<sha256_hex_root>".
