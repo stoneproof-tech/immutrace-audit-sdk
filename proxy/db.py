@@ -149,6 +149,22 @@ CREATE TABLE IF NOT EXISTS key_meta (
     num_shares INTEGER NOT NULL,
     created_at TEXT NOT NULL
 );
+
+-- ── Per-record encryption keys (Step 5, AES-GCM + crypto-erasure) ───────────
+-- Each encrypted event gets a random AES key, itself wrapped by the master key.
+-- GDPR Art.17 erasure = destroy the wrapped key (wrapped_key -> NULL): the
+-- ciphertext (and the hash chain over it) stay intact, but the plaintext becomes
+-- permanently unrecoverable.
+CREATE TABLE IF NOT EXISTS record_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_table TEXT NOT NULL,
+    record_id INTEGER NOT NULL,
+    wrapped_key BLOB,                 -- AES-GCM(master, per-record key); NULL once erased
+    wrap_nonce BLOB,
+    created_at TEXT NOT NULL,
+    erased_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_record_keys_ref ON record_keys(record_table, record_id);
 """
 
 

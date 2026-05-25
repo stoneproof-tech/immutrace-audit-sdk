@@ -3,10 +3,10 @@ import sqlite3
 import json
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Request, Response, HTTPException
+from fastapi import APIRouter, Request, Response, HTTPException, Depends
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, RedirectResponse
 from pydantic import BaseModel
-from . import config, auth
+from . import config, auth, identity, encryption
 from .chain import verify_chain
 
 router = APIRouter(prefix="/_immutrace")
@@ -106,7 +106,8 @@ async def audit_events(session_id: Optional[str] = None, case_id: Optional[str] 
         sql += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
         cur = conn.execute(sql, params)
-        rows = [dict(r) for r in cur.fetchall()]
+        # Decrypt encrypted fields for display (erased -> [ERASED], locked -> [LOCKED]).
+        rows = [encryption.decrypt_event_fields(dict(r)) for r in cur.fetchall()]
         return {"events": rows, "count": len(rows)}
     finally:
         conn.close()
@@ -157,6 +158,45 @@ async def audit_verify(session_id: str):
         return {"ok": False, "error": "no events for session", "count": 0}
     result = verify_chain(rows)
     return result
+
+
+class EraseRequest(BaseModel):
+    case_id: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+@router.post("/gdpr/erase")
+async def gdpr_erase(req: EraseRequest, request: Request, admin: dict = Depends(identity.require_admin)):
+    """Cryptographic erasure (GDPR Art.17): destroy the per-record keys for the
+    matching events. Ciphertext and hash chain stay intact; plaintext becomes
+    unrecoverable. The erasure itself is recorded in the chain."""
+    if not req.case_id and not req.session_id:
+        raise HTTPException(400, "provide case_id or session_id")
+    conn = sqlite3.connect(str(config.DB_PATH))
+    try:
+        if req.case_id:
+            ids = [r[0] for r in conn.execute("SELECT id FROM events WHERE case_id=?", (req.case_id,))]
+        else:
+            ids = [r[0] for r in conn.execute("SELECT id FROM events WHERE session_id=?", (req.session_id,))]
+    finally:
+        conn.close()
+    n = encryption.erase_records(ids)
+
+    # Audit the erasure itself (auditable action). NOTE: this event is a SYSTEM
+    # action, not subject data — so it carries no case_id (the erased target is
+    # recorded in the justification), keeping case queries clean.
+    target = f"case {req.case_id}" if req.case_id else f"session {req.session_id}"
+    from . import proxy as proxy_mod
+    sess = {"session_id": "login:" + str(admin["user_id"]), "actor": admin["username"],
+            "case_id": "", "activity_type": "GDPR_ERASURE",
+            "justification": f"Crypto-erasure of {n} record key(s) for {target}"}
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+        request.client.host if request.client else "unknown")
+    await proxy_mod.log_event(session=sess, event_type="gdpr_erasure", method="POST",
+                              path="/_immutrace/gdpr/erase", query="", body_bytes=b"",
+                              response_status=200, response_bytes=b"", remote_ip=ip,
+                              user_agent=request.headers.get("user-agent", ""))
+    return {"erased_record_keys": n, "events_matched": len(ids)}
 
 
 @router.post("/audit/anchor-now")

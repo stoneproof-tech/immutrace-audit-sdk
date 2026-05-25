@@ -7,7 +7,7 @@ import httpx
 import websockets
 from fastapi import Request, Response, WebSocket
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
-from . import config, auth, identity, workflow
+from . import config, auth, identity, workflow, keymgmt, encryption
 from .chain import sha256_hex, chain_hash, canonical_event
 from .adapters import make_adapter, UpstreamError
 
@@ -112,16 +112,28 @@ async def log_event(
         "user_agent": user_agent,
     }
 
+    # Encrypt sensitive fields at rest when the master key is unlocked. The hash
+    # chain is computed over the (now ciphertext) fields, so verification needs no
+    # key and crypto-erasure (destroying the per-record key) cannot break it.
+    record_wrap = None
+    if keymgmt.is_unlocked() and any(event.get(f) for f in encryption.ENCRYPTED_FIELDS):
+        rk = encryption.generate_record_key()
+        for f in encryption.ENCRYPTED_FIELDS:
+            if event.get(f):
+                event[f] = encryption.encrypt_field(rk, event[f])
+        record_wrap = encryption.wrap_record_key(rk)  # (nonce, wrapped) | None
+
     # One writer at a time; the blocking SQLite work runs in a worker thread so it
     # never stalls the event loop (which would otherwise time out concurrent
     # upstream reads when the browser fetches dozens of assets at once).
     async with _chain_lock:
-        return await asyncio.to_thread(_insert_event_sync, event)
+        return await asyncio.to_thread(_insert_event_sync, event, record_wrap)
 
 
-def _insert_event_sync(event: dict) -> str:
-    """Blocking: read prev hash, compute this_hash, insert. Runs in a thread
-    under _chain_lock so the read-then-insert is atomic and single-writer."""
+def _insert_event_sync(event: dict, record_wrap=None) -> str:
+    """Blocking: read prev hash, compute this_hash, insert (and, if the event was
+    encrypted, store its wrapped per-record key in the same transaction). Runs in
+    a thread under _chain_lock so the read-then-insert is atomic and single-writer."""
     conn = sqlite3.connect(str(config.DB_PATH), timeout=30.0)
     try:
         conn.execute("PRAGMA busy_timeout=30000")
@@ -132,7 +144,7 @@ def _insert_event_sync(event: dict) -> str:
         event["prev_hash"] = prev
         this_hash = chain_hash(prev, event)
 
-        conn.execute(
+        cur = conn.execute(
             "INSERT INTO events (session_id, actor, case_id, activity_type, "
             "justification, ts, event_type, method, path, query, body_sha256, "
             "response_status, response_sha256, remote_ip, user_agent, prev_hash, this_hash) "
@@ -143,6 +155,9 @@ def _insert_event_sync(event: dict) -> str:
              event["body_sha256"], event["response_status"], event["response_sha256"],
              event["remote_ip"], event["user_agent"], prev, this_hash),
         )
+        if record_wrap is not None:
+            nonce, wrapped = record_wrap
+            encryption.insert_record_key(conn, cur.lastrowid, wrapped, nonce)
         conn.commit()
         return this_hash
     finally:
