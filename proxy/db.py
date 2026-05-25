@@ -53,6 +53,35 @@ CREATE TABLE IF NOT EXISTS anchors (
     block_number INTEGER,
     confirmed INTEGER DEFAULT 0
 );
+
+-- ── Identity (Step 2) ──────────────────────────────────────────────────────
+-- NOTE: the legacy `sessions` table above is the *investigation* session
+-- (justification-bound authorization context, kept for backward compat).
+-- `login_sessions` below is the *authentication* session (who is logged in) —
+-- a deliberately separate table to avoid colliding with the legacy schema.
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('analyst','supervisor','admin','custodian')),
+    full_name TEXT,
+    email TEXT,
+    created_at TEXT NOT NULL,
+    last_login_at TEXT,
+    active INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+CREATE TABLE IF NOT EXISTS login_sessions (
+    id TEXT PRIMARY KEY,                 -- uuid hex
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    ip TEXT,
+    user_agent TEXT,
+    revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_login_sessions_user ON login_sessions(user_id);
 """
 
 

@@ -57,7 +57,7 @@ DB_PATH = ROOT / _env("DB_PATH", "data/audit.db")
 
 # Authorization
 AUTH_TTL = _env_int("AUTH_TOKEN_TTL_SECONDS", 1800)
-ADMIN_USER = _env("ADMIN_USER", "analyst")
+ADMIN_USER = _env("ADMIN_USER", "admin")
 ADMIN_PASSWORD = _env("ADMIN_PASSWORD", "demo")
 
 # Polygon (anchoring). Amoy testnet by default; mainnet only when explicitly set.

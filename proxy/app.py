@@ -4,7 +4,8 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import RedirectResponse, JSONResponse
 from contextlib import asynccontextmanager
 
-from . import config, db, proxy as proxy_mod, dashboard as dash_mod, anchor as anchor_mod
+from . import (config, db, proxy as proxy_mod, dashboard as dash_mod,
+               anchor as anchor_mod, identity as identity_mod)
 
 # Initialize DB schema
 db.init_sync()
@@ -12,6 +13,8 @@ db.init_sync()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Seed bootstrap/demo users if the users table is empty
+    identity_mod.seed_users()
     # Start the anchor worker
     task = asyncio.create_task(anchor_mod.anchor_worker())
     print(f"[immutrace] proxy listening on http://{config.PROXY_HOST}:{config.PROXY_PORT}")
@@ -31,8 +34,9 @@ app = FastAPI(
     openapi_url="/_immutrace/openapi.json",
 )
 
-# Mount audit + dashboard routes FIRST (so they take precedence over proxy catch-all)
+# Mount audit + dashboard + auth routes FIRST (precedence over proxy catch-all)
 app.include_router(dash_mod.router)
+app.include_router(identity_mod.router)
 
 
 @app.get("/_immutrace/health")

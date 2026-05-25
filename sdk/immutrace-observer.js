@@ -88,6 +88,73 @@
     return currentSession;
   }
 
+  // ── Identity (Step 2: multi-user login) ──
+  let currentUser = null;
+
+  async function loadAuth() {
+    try {
+      const r = await window.__imt_orig_fetch("/_immutrace/auth/me",
+        { credentials: "same-origin" });
+      const j = await r.json();
+      currentUser = j.authenticated ? j : null;
+    } catch (e) { currentUser = null; }
+    return currentUser;
+  }
+
+  function renderIdentity(bannerEl) {
+    if (currentUser) {
+      bannerEl.append(
+        $("span", { style: { color: "#bcd6ff", fontWeight: "600" } },
+          `\u{1F464} ${currentUser.username} (${currentUser.role})`),
+        $("button", { on: { click: async () => {
+          await window.__imt_orig_fetch("/_immutrace/auth/logout",
+            { method: "POST", credentials: "same-origin" });
+          location.reload();
+        }}}, "Logout"),
+      );
+    } else {
+      bannerEl.append($("button", { on: { click: () => showLoginModal() } }, "Login"));
+    }
+  }
+
+  function showLoginModal() {
+    // Only one login modal at a time (multiple sensitive 401s would otherwise stack it).
+    if (document.querySelector(".imt-login-overlay")) return;
+    injectStyle();
+    const overlay = $("div", { class: "imt-overlay imt-login-overlay" });
+    const modal = $("div", { class: "imt-modal" });
+    const heading = $("h2", {}, $("span", { class: "imt-shield" }), "Sign in to IMMUTRACE");
+    const sub = $("p", { class: "imt-sub" }, "Authenticate with your IMMUTRACE account.");
+    const inUser = $("input", { type: "text", placeholder: "username",
+      value: localStorage.getItem("imt:lastUser") || "" });
+    const inPass = $("input", { type: "password", placeholder: "password" });
+    const err = $("div", { class: "imt-error" });
+    const btn = $("button", { class: "imt-btn" }, "Sign in");
+    btn.addEventListener("click", async () => {
+      err.textContent = ""; btn.disabled = true;
+      try {
+        const r = await window.__imt_orig_fetch("/_immutrace/auth/login", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ username: inUser.value.trim(), password: inPass.value }),
+        });
+        if (!r.ok) throw new Error(r.status === 401 ? "Invalid credentials" : "Login failed");
+        localStorage.setItem("imt:lastUser", inUser.value.trim());
+        location.reload();
+      } catch (e) { err.textContent = e.message; btn.disabled = false; }
+    });
+    inPass.addEventListener("keydown", (e) => { if (e.key === "Enter") btn.click(); });
+    const cancel = $("button", { class: "imt-btn-secondary",
+      on: { click: () => overlay.remove() } }, "Cancel");
+    modal.append(heading, sub,
+      $("label", {}, "Username"), inUser,
+      $("label", {}, "Password"), inPass, err,
+      $("div", { class: "imt-actions" }, cancel, btn));
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    setTimeout(() => inUser.focus(), 100);
+  }
+
   function showBanner() {
     let b = document.getElementById("imt-banner");
     if (currentSession) {
@@ -115,6 +182,7 @@
           }}
         }, "End session"),
       );
+      renderIdentity(b);
     } else if (b) {
       b.remove();
       document.body.style.paddingTop = "";
@@ -228,7 +296,14 @@
   window.fetch = async function (input, init) {
     const r = await window.__imt_orig_fetch(input, init);
     if (r.status === 401 && r.headers.get("X-Immutrace-Gate") === "blocked") {
-      // Re-prompt and retry once
+      // Identity comes first: you must be logged in before you can be authorized.
+      if (!currentUser) { await loadAuth(); }
+      if (!currentUser) {
+        showLoginModal();   // log in, then reload re-issues the request
+        return r;
+      }
+      // Logged in → authorization flow (justification session; Step 3 turns this
+      // into a supervisor-approval request). Re-prompt and retry once.
       await new Promise((resolve) => {
         pendingResolvers.push(resolve);
         showModal({ reason: `Authorization required to access ${typeof input === "string" ? input : input.url}.` });
@@ -241,6 +316,7 @@
   // Boot: load current session, show banner OR prompt
   async function boot() {
     await loadSession();
+    await loadAuth();
     if (currentSession) {
       showBanner();
     } else {
@@ -261,6 +337,7 @@
           on: { click: () => showModal() }
         }, "Start session"),
       );
+      renderIdentity(off);
       document.body.appendChild(off);
     }
   }
