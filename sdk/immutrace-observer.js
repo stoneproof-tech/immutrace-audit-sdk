@@ -103,7 +103,11 @@
 
   function renderIdentity(bannerEl) {
     if (currentUser) {
+      if (currentUser.role === "supervisor" || currentUser.role === "admin") {
+        bannerEl.append($("a", { href: "/_immutrace/supervisor/queue", target: "_blank" }, "Approval queue ↗"));
+      }
       bannerEl.append(
+        $("a", { href: "/_immutrace/analyst/requests", target: "_blank" }, "My requests ↗"),
         $("span", { style: { color: "#bcd6ff", fontWeight: "600" } },
           `\u{1F464} ${currentUser.username} (${currentUser.role})`),
         $("button", { on: { click: async () => {
@@ -153,6 +157,66 @@
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
     setTimeout(() => inUser.focus(), 100);
+  }
+
+  // Step 3: request supervisor authorization for a blocked endpoint.
+  function showRequestModal(targetPath) {
+    if (document.querySelector(".imt-request-overlay")) return;  // one at a time
+    injectStyle();
+    const overlay = $("div", { class: "imt-overlay imt-request-overlay" });
+    const modal = $("div", { class: "imt-modal" });
+    const inCase = $("input", { type: "text", placeholder: "e.g. CASE-2026-0142 (optional)",
+      value: localStorage.getItem("imt:lastCase") || "" });
+    const inUrg = $("select");
+    for (const u of ["low", "normal", "high"]) {
+      const o = document.createElement("option"); o.value = o.textContent = u; inUrg.appendChild(o);
+    }
+    inUrg.value = "normal";
+    const inJust = $("textarea", { placeholder:
+      "Describe the legitimate purpose of this access (≥ 10 chars)." });
+    const counter = $("div", { class: "imt-counter" }, "0 / 10 chars minimum");
+    const err = $("div", { class: "imt-error" });
+    const btn = $("button", { class: "imt-btn" }, "Submit request");
+    btn.disabled = true;
+    inJust.addEventListener("input", () => {
+      const n = inJust.value.trim().length;
+      counter.textContent = `${n} / 10 chars minimum`;
+      btn.disabled = n < 10;
+    });
+    btn.addEventListener("click", async () => {
+      err.textContent = ""; btn.disabled = true;
+      try {
+        const r = await window.__imt_orig_fetch("/_immutrace/approval/request", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ target_path: targetPath, justification: inJust.value.trim(),
+            case_id: inCase.value.trim(), urgency: inUrg.value }),
+        });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.detail || "Request failed"); }
+        localStorage.setItem("imt:lastCase", inCase.value.trim());
+        modal.innerHTML = "";
+        modal.append(
+          $("h2", {}, $("span", { class: "imt-shield" }), "Request submitted"),
+          $("p", { class: "imt-sub" },
+            `Awaiting supervisor approval for ${targetPath}. Once approved, reload the page to gain access.`),
+          $("div", { class: "imt-actions" },
+            $("button", { class: "imt-btn", on: { click: () => overlay.remove() } }, "Close")),
+        );
+      } catch (e) { err.textContent = e.message; btn.disabled = false; }
+    });
+    const cancel = $("button", { class: "imt-btn-secondary", on: { click: () => overlay.remove() } }, "Cancel");
+    modal.append(
+      $("h2", {}, $("span", { class: "imt-shield" }), "Request authorization"),
+      $("p", { class: "imt-sub" },
+        `Access to ${targetPath} requires supervisor approval. Your request is chained and auditable.`),
+      $("label", {}, "Justification (≥ 10 chars)"), inJust, counter,
+      $("div", { class: "imt-row" },
+        $("div", {}, $("label", {}, "Urgency"), inUrg),
+        $("div", {}, $("label", {}, "Case ID (optional)"), inCase)),
+      err, $("div", { class: "imt-actions" }, cancel, btn));
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    setTimeout(() => inJust.focus(), 100);
   }
 
   function showBanner() {
@@ -302,13 +366,14 @@
         showLoginModal();   // log in, then reload re-issues the request
         return r;
       }
-      // Logged in → authorization flow (justification session; Step 3 turns this
-      // into a supervisor-approval request). Re-prompt and retry once.
-      await new Promise((resolve) => {
-        pendingResolvers.push(resolve);
-        showModal({ reason: `Authorization required to access ${typeof input === "string" ? input : input.url}.` });
-      });
-      return window.__imt_orig_fetch(input, init);
+      // Logged in → request supervisor approval for this endpoint (pre-auth model).
+      // No automatic retry: access is granted only after a supervisor approves,
+      // at which point the analyst reloads.
+      const url = typeof input === "string" ? input : (input && input.url) || "";
+      let path = url;
+      try { path = new URL(url, location.origin).pathname; } catch (e) {}
+      showRequestModal(path);
+      return r;
     }
     return r;
   };
@@ -326,16 +391,15 @@
       const off = $("div", { id: "imt-banner", class: "imt-banner",
         style: { background: "linear-gradient(90deg, #3a1414, #2a0e0e)",
                  color: "#ffb4b4", borderColor: "#5a2424" } });
+      const msg = currentUser
+        ? "Sensitive endpoints require supervisor approval"
+        : "Log in to access — sensitive endpoints require approval";
       off.append(
         $("span", { class: "imt-dot", style: { background: "#ff5a5a", boxShadow: "0 0 8px #ff5a5a" } }),
-        $("span", {}, "IMMUTRACE AUDIT — NO SESSION"),
-        $("span", { style: { color: "#98a8c5", fontWeight: "400" } },
-          "Sensitive endpoints will trigger an authorization prompt"),
+        $("span", {}, "IMMUTRACE AUDIT — NO ACTIVE AUTHORIZATION"),
+        $("span", { style: { color: "#98a8c5", fontWeight: "400" } }, msg),
         $("span", { class: "imt-grow" }),
         $("a", { href: "/_immutrace/dashboard", target: "_blank" }, "Dashboard ↗"),
-        $("button", {
-          on: { click: () => showModal() }
-        }, "Start session"),
       );
       renderIdentity(off);
       document.body.appendChild(off);

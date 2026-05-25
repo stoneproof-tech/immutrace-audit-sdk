@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from contextlib import asynccontextmanager
 
 from . import (config, db, proxy as proxy_mod, dashboard as dash_mod,
-               anchor as anchor_mod, identity as identity_mod)
+               anchor as anchor_mod, identity as identity_mod, workflow as workflow_mod)
 
 # Initialize DB schema
 db.init_sync()
@@ -34,9 +34,10 @@ app = FastAPI(
     openapi_url="/_immutrace/openapi.json",
 )
 
-# Mount audit + dashboard + auth routes FIRST (precedence over proxy catch-all)
+# Mount audit + dashboard + auth + workflow routes FIRST (precedence over proxy catch-all)
 app.include_router(dash_mod.router)
 app.include_router(identity_mod.router)
+app.include_router(workflow_mod.router)
 
 
 @app.get("/_immutrace/health")

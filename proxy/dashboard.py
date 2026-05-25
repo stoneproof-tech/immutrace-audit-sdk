@@ -177,6 +177,16 @@ async def dashboard_html():
     return HTMLResponse(p.read_text(encoding="utf-8"))
 
 
+@router.get("/supervisor/queue", response_class=HTMLResponse)
+async def supervisor_queue_page():
+    return HTMLResponse((DASHBOARD_DIR / "supervisor.html").read_text(encoding="utf-8"))
+
+
+@router.get("/analyst/requests", response_class=HTMLResponse)
+async def analyst_requests_page():
+    return HTMLResponse((DASHBOARD_DIR / "analyst.html").read_text(encoding="utf-8"))
+
+
 @router.get("/sdk.js")
 async def sdk_js():
     # Canonical source is the standalone, backend-agnostic observer library.

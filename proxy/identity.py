@@ -249,6 +249,13 @@ def require_admin(request: Request) -> Dict[str, Any]:
     return u
 
 
+def require_supervisor(request: Request) -> Dict[str, Any]:
+    u = require_user(request)
+    if u["role"] not in ("supervisor", "admin"):
+        raise HTTPException(403, "Supervisor role required")
+    return u
+
+
 def _client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for")
     if fwd:

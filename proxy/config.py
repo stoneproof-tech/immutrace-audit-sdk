@@ -8,6 +8,7 @@ config ships in config/sensitive_endpoints.yaml).
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -118,10 +119,16 @@ def _load_sensitive_rules():
 SENSITIVE_PREFIXES, SENSITIVE_RULES = _load_sensitive_rules()
 
 
-def risk_level(path: str) -> str:
-    """Risk level for a path (by longest matching prefix), or 'none'."""
+def matched_prefix(path: str) -> Optional[str]:
+    """Longest sensitive prefix matching this path, or None."""
     best = None
-    for prefix, rule in SENSITIVE_RULES.items():
+    for prefix in SENSITIVE_RULES:
         if path.startswith(prefix) and (best is None or len(prefix) > len(best)):
             best = prefix
+    return best
+
+
+def risk_level(path: str) -> str:
+    """Risk level for a path (by longest matching prefix), or 'none'."""
+    best = matched_prefix(path)
     return SENSITIVE_RULES[best]["risk"] if best else "none"

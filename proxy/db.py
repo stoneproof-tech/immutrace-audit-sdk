@@ -82,6 +82,27 @@ CREATE TABLE IF NOT EXISTS login_sessions (
     revoked_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_login_sessions_user ON login_sessions(user_id);
+
+-- ── Approval workflow (Step 3, pre-authorization model) ────────────────────
+-- Analyst requests access to a sensitive endpoint prefix; a supervisor approves
+-- (granting time-boxed authorization) or rejects. Decisions are also written to
+-- the hash chain as auditable events.
+CREATE TABLE IF NOT EXISTS approval_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    requester_user_id INTEGER NOT NULL REFERENCES users(id),
+    requested_at TEXT NOT NULL,
+    endpoint_prefix TEXT NOT NULL,
+    justification TEXT NOT NULL,
+    case_id TEXT,
+    urgency TEXT NOT NULL DEFAULT 'normal' CHECK(urgency IN ('low','normal','high')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','expired')),
+    supervisor_user_id INTEGER REFERENCES users(id),
+    decided_at TEXT,
+    decision_note TEXT,
+    expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_requests(status);
+CREATE INDEX IF NOT EXISTS idx_approval_requester ON approval_requests(requester_user_id);
 """
 
 

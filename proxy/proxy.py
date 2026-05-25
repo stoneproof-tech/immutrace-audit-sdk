@@ -7,7 +7,7 @@ import httpx
 import websockets
 from fastapi import Request, Response, WebSocket
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
-from . import config, auth
+from . import config, auth, identity, workflow
 from .chain import sha256_hex, chain_hash, canonical_event
 from .adapters import make_adapter, UpstreamError
 
@@ -160,8 +160,27 @@ async def handle_proxy_request(request: Request) -> Response:
     # Read body (FastAPI gives bytes)
     body = await request.body()
 
-    # Authorization gate for sensitive endpoints
-    session = auth.get_session(request.cookies.get(auth.COOKIE_NAME))
+    # Authorization gate for sensitive endpoints.
+    # Authorization may come from EITHER:
+    #  (a) a legacy investigation session (session/start + justification) — kept
+    #      for backward compatibility / single-user mode, and
+    #  (b) the Step-3 workflow: a logged-in user with an active supervisor-approved
+    #      authorization for this path's prefix.
+    session = auth.get_session(request.cookies.get(auth.COOKIE_NAME))  # legacy (a)
+    if not session:
+        login_user = identity.current_user(request)
+        if login_user:
+            appr = workflow.active_authorization(login_user["user_id"], path)
+            if appr:
+                # Build a session-like context so the audit log captures who
+                # accessed under which approval.
+                session = {
+                    "session_id": "login:" + str(login_user["user_id"]),
+                    "actor": login_user["username"],
+                    "case_id": appr.get("case_id") or "",
+                    "activity_type": "APPROVED:" + appr["endpoint_prefix"],
+                    "justification": appr.get("justification") or "",
+                }
     if auth.is_sensitive_path(path) and not session:
         # Log the denial too — important: an attempted access is itself auditable
         await log_event(
@@ -175,7 +194,8 @@ async def handle_proxy_request(request: Request) -> Response:
             status_code=401,
             content={
                 "error": "AUTH_REQUIRED",
-                "message": "An IMMUTRACE investigation session is required for this endpoint.",
+                "message": "Supervisor-approved authorization (or an investigation session) "
+                           "is required for this endpoint.",
                 "endpoint": path,
             },
             headers={"X-Immutrace-Gate": "blocked"},

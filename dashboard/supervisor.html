@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IMMUTRACE — Approval queue</title>
+<style>
+  body{margin:0;background:#0a142a;color:#e6edf7;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{padding:14px 20px;border-bottom:1px solid #233a6f;display:flex;align-items:center;gap:12px}
+  header h1{font-size:16px;margin:0;color:#ffd86b;letter-spacing:.04em}
+  header .who{margin-left:auto;color:#98a8c5;font-size:13px}
+  main{padding:20px;max-width:1100px;margin:0 auto}
+  .empty{color:#98a8c5;padding:30px;text-align:center}
+  .card{background:#0e1a36;border:1px solid #233a6f;border-radius:10px;padding:14px 16px;margin-bottom:12px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .pfx{font-weight:700;color:#ffd86b}
+  .urg{font-size:11px;text-transform:uppercase;padding:2px 8px;border-radius:10px;border:1px solid #233a6f}
+  .urg.high{background:#3a1414;color:#ff9b9b;border-color:#5a2424}
+  .urg.normal{background:#16243f;color:#bcd6ff}
+  .urg.low{background:#13261d;color:#9fe0c0}
+  .meta{color:#98a8c5;font-size:12px;margin-top:4px}
+  .just{margin:8px 0;color:#dbe6ff}
+  .grow{flex:1}
+  button{border:0;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;font-size:13px}
+  .approve{background:#00e3a5;color:#03261c}
+  .reject{background:transparent;color:#ff9b9b;border:1px solid #5a2424}
+  .err{color:#ff8b8b;padding:20px}
+  a{color:#ffd86b}
+</style></head>
+<body>
+<header>
+  <h1>◆ IMMUTRACE — Approval queue</h1>
+  <span class="who" id="who"></span>
+</header>
+<main id="main"><div class="empty">Loading…</div></main>
+<script>
+const F = (u,o)=>fetch(u,Object.assign({credentials:"same-origin"},o||{}));
+async function me(){ try{return await (await F("/_immutrace/auth/me")).json();}catch(e){return {authenticated:false};} }
+function el(t,a,...c){const e=document.createElement(t);for(const k in (a||{}))k==="cls"?e.className=a[k]:e.setAttribute(k,a[k]);for(const x of c)e.append(x&&x.nodeType?x:document.createTextNode(x??""));return e;}
+async function load(){
+  const u = await me();
+  const who = document.getElementById("who"); const main = document.getElementById("main");
+  if(!u.authenticated){ main.innerHTML='<div class="err">Not logged in. Open the dashboard or the main app to sign in.</div>'; return; }
+  who.textContent = `${u.username} (${u.role})`;
+  if(u.role!=="supervisor" && u.role!=="admin"){ main.innerHTML='<div class="err">Supervisor or admin role required.</div>'; return; }
+  const r = await F("/_immutrace/approval/queue");
+  if(r.status!==200){ main.innerHTML='<div class="err">Could not load queue ('+r.status+').</div>'; return; }
+  const pend = (await r.json()).pending||[];
+  main.innerHTML="";
+  if(!pend.length){ main.append(el("div",{cls:"empty"},"No pending requests.")); return; }
+  for(const q of pend){
+    const card = el("div",{cls:"card"});
+    card.append(
+      el("div",{cls:"row"},
+        el("span",{cls:"pfx"}, q.endpoint_prefix),
+        el("span",{cls:"urg "+q.urgency}, q.urgency),
+        el("span",{cls:"grow"}),
+        el("button",{cls:"approve"},"Approve"),
+        el("button",{cls:"reject"},"Reject")),
+      el("div",{cls:"just"}, q.justification),
+      el("div",{cls:"meta"}, `#${q.id} · requested by ${q.requester} · ${q.requested_at}` + (q.case_id?` · case ${q.case_id}`:""))
+    );
+    const btns = card.querySelectorAll("button");
+    btns[0].onclick = async ()=>{ const note=prompt("Approval note (optional):","")??""; const rr=await F(`/_immutrace/approval/${q.id}/approve`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note})}); if(rr.ok) load(); else alert("Approve failed: "+rr.status); };
+    btns[1].onclick = async ()=>{ const note=prompt("Reason for rejection:","")??""; const rr=await F(`/_immutrace/approval/${q.id}/reject`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({note})}); if(rr.ok) load(); else alert("Reject failed: "+rr.status); };
+    main.append(card);
+  }
+}
+load();
+setInterval(load, 10000);
+</script>
+</body></html>
