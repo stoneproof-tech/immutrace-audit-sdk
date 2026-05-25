@@ -57,23 +57,27 @@ def _rpc_urls() -> list[str]:
     return urls
 
 
+def _rpc_call(url: str, method: str, params: list):
+    """Single JSON-RPC call to one endpoint."""
+    req = urllib.request.Request(
+        url,
+        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
+        headers={"Content-Type": "application/json", "User-Agent": "immutrace-anchor/1.0"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        j = json.load(r)
+    if "error" in j:
+        raise RuntimeError(j["error"])
+    return j["result"]
+
+
 def _rpc(method: str, params: list):
-    """Minimal JSON-RPC over the mainnet RPC(s) with fallback + one retry pass
+    """JSON-RPC over the mainnet RPC(s) with fallback + one retry pass
     (public RPCs rate-limit, so a brief retry over the full list usually clears)."""
     last = None
     for attempt in range(2):
         for url in _rpc_urls():
             try:
-                req = urllib.request.Request(
-                    url,
-                    data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
-                    headers={"Content-Type": "application/json",
-                             "User-Agent": "immutrace-anchor/1.0"})
-                with urllib.request.urlopen(req, timeout=20) as r:
-                    j = json.load(r)
-                if "error" in j:
-                    raise RuntimeError(j["error"])
-                return j["result"]
+                return _rpc_call(url, method, params)
             except Exception as e:
                 last = e
                 continue
@@ -81,12 +85,28 @@ def _rpc(method: str, params: list):
     raise RuntimeError(f"all Polygon RPCs failed for {method}: {last}")
 
 
+def _nonce_consensus() -> int:
+    """Return the MAX pending nonce across all reachable RPCs. Defends against
+    flaky nodes returning a stale/zero nonce — signing with a too-low nonce would
+    replace/fail a tx. Requires at least one successful read."""
+    addr = config.ANCHOR_WALLET_ADDRESS
+    vals = []
+    for url in _rpc_urls():
+        try:
+            vals.append(int(_rpc_call(url, "eth_getTransactionCount", [addr, "pending"]), 16))
+        except Exception:
+            continue
+    if not vals:
+        raise RuntimeError("no RPC returned a nonce")
+    return max(vals)
+
+
 def verify_mainnet_state() -> dict:
     """Read-only pre-flight: chain id, wallet balance, pending nonce."""
     addr = config.ANCHOR_WALLET_ADDRESS
     cid = int(_rpc("eth_chainId", []), 16)
     bal = int(_rpc("eth_getBalance", [addr, "latest"]), 16)
-    nonce = int(_rpc("eth_getTransactionCount", [addr, "pending"]), 16)
+    nonce = _nonce_consensus()   # max across RPCs — robust to flaky/zero nodes
     return {"chain_id": cid, "wallet": addr, "balance_pol": bal / 1e18,
             "balance_wei": bal, "nonce": nonce, "chain_ok": cid == config.POLYGON_CHAIN_ID}
 

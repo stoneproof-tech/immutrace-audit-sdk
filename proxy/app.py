@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
     print(f"[immutrace] proxy listening on http://{config.PROXY_HOST}:{config.PROXY_PORT}")
     print(f"[immutrace] upstream: {config.UPSTREAM_URL} (adapter: {config.BACKEND_ADAPTER})")
     print(f"[immutrace] db: {config.DB_PATH}")
-    print(f"[immutrace] anchor mode: {'MOCK' if config.MOCK_ANCHOR else 'polygon-amoy'}")
+    print(f"[immutrace] anchor mode: {'MOCK' if config.MOCK_ANCHOR else 'polygon-mainnet'}")
     print(f"[immutrace] dashboard: http://{config.PROXY_HOST}:{config.PROXY_PORT}/_immutrace/dashboard")
     yield
     task.cancel()

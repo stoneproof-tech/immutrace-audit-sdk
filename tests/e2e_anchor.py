@@ -30,14 +30,20 @@ def main():
     check("payload hex round-trips",
           bytes.fromhex(ph[2:]).decode() == "immutrace-ledgereye-audit:" + root)
 
-    # SAFETY GUARD: must refuse to sign when the key doesn't control the wallet
+    # SAFETY GUARD: must refuse to sign when the key doesn't control the wallet.
+    # Use a THROWAWAY key so the guard raises BEFORE any network/send (never sends).
+    from eth_account import Account
+    _orig_key = config.ANCHOR_PRIVATE_KEY
+    config.ANCHOR_PRIVATE_KEY = Account.create().key.hex()  # random, != anchor wallet
     try:
         anchor.submit_anchor_mainnet(root); raised = False
     except RuntimeError as e:
         raised = "refusing to send" in str(e).lower()
     except Exception:
         raised = False
-    check("refuses to send when key != anchor wallet", raised)
+    finally:
+        config.ANCHOR_PRIVATE_KEY = _orig_key
+    check("refuses to send when key != anchor wallet (no tx sent)", raised)
 
     # read-only mainnet pre-flight
     st = anchor.verify_mainnet_state()
