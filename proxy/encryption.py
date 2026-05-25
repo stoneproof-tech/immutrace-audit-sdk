@@ -20,6 +20,8 @@ from . import config, keymgmt, identity
 ENC_PREFIX = "enc:v1:"
 # Fields of an audit event encrypted at rest (free-text PII / sensitive params).
 # case_id stays plaintext so it remains filterable; actor/path stay operational.
+# TODO (roadmap): if case_id is itself sensitive, encrypt it with a searchable
+# scheme (Blind Index / HMAC over a static key) so equality filters still work.
 ENCRYPTED_FIELDS = ("justification", "query")
 
 

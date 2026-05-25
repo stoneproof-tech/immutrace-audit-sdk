@@ -61,7 +61,12 @@ def _meta() -> Optional[dict]:
 # ── Setup ───────────────────────────────────────────────────────────────────
 def setup(requester_user_id: int) -> dict:
     """Generate a fresh master key, split it k-of-n, store encrypted fragments.
-    Keeps the key in RAM. Re-running re-keys (clears previous shards)."""
+    Keeps the key in RAM. Re-running re-keys (clears previous shards).
+
+    ⚠️ TODO (/keys/rotate, post-grant): re-running setup currently does NOT re-wrap
+    existing per-record AES keys, so events encrypted under the previous master
+    become undecryptable. Implement key rotation that re-wraps every record_keys
+    row under the new master BEFORE swapping key_meta. See SECURITY_MODEL.md."""
     global _master_key
     _backend.provision()
     custs = _backend.custodians()
