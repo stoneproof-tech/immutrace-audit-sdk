@@ -1,5 +1,12 @@
-"""Configuration loader (reads .env)."""
+"""Configuration loader (reads .env + external sensitive-endpoints YAML).
+
+IMMUTRACE is backend-agnostic: the upstream system is configured via UPSTREAM_URL
+and the list of protected paths lives in an external YAML file that a client edits
+for their own system. Nothing here is hard-coded to OSIRIS (the reference demo
+config ships in config/sensitive_endpoints.yaml).
+"""
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -36,7 +43,14 @@ EXPORT_DIR.mkdir(exist_ok=True)
 # Proxy
 PROXY_HOST = _env("PROXY_HOST", "127.0.0.1")
 PROXY_PORT = _env_int("PROXY_PORT", 3001)
-OSIRIS_URL = _env("OSIRIS_URL", "http://127.0.0.1:3000").rstrip("/")
+
+# Upstream backend (agnostic). UPSTREAM_URL is preferred; OSIRIS_URL is kept as a
+# backward-compatible alias so existing .env files (and the demo) keep working.
+UPSTREAM_URL = (_env("UPSTREAM_URL", "") or _env("OSIRIS_URL", "http://127.0.0.1:3000")).rstrip("/")
+OSIRIS_URL = UPSTREAM_URL  # deprecated alias — do not use in new code
+
+# Which backend adapter to use (http | graphql | grpc). Only http is implemented.
+BACKEND_ADAPTER = _env("BACKEND_ADAPTER", "http").lower()
 
 # Audit
 DB_PATH = ROOT / _env("DB_PATH", "data/audit.db")
@@ -46,7 +60,7 @@ AUTH_TTL = _env_int("AUTH_TOKEN_TTL_SECONDS", 1800)
 ADMIN_USER = _env("ADMIN_USER", "analyst")
 ADMIN_PASSWORD = _env("ADMIN_PASSWORD", "demo")
 
-# Polygon Amoy
+# Polygon (anchoring). Amoy testnet by default; mainnet only when explicitly set.
 MOCK_ANCHOR = _env_bool("MOCK_ANCHOR", True)
 AMOY_RPC = _env("AMOY_RPC", "https://rpc-amoy.polygon.technology")
 AMOY_CHAIN_ID = _env_int("AMOY_CHAIN_ID", 80002)
@@ -56,24 +70,58 @@ ANCHOR_CONTRACT = _env("ANCHOR_CONTRACT", "")
 ANCHOR_BATCH_SIZE = _env_int("ANCHOR_BATCH_SIZE", 100)
 ANCHOR_BATCH_INTERVAL = _env_int("ANCHOR_BATCH_INTERVAL_SECONDS", 300)
 
-# Endpoints considered "sensitive" — require authorization
-# Match by path prefix on the upstream URL after /api/
-# OSIRIS uses /api/flights, /api/cctv, /api/maritime, /api/infrastructure,
-# /api/region-dossier, /api/satellites, /api/osint/*, /api/scanner, /api/sweep
-SENSITIVE_PREFIXES = (
-    "/api/flights",
-    "/api/cctv",
-    "/api/maritime",
-    "/api/infrastructure",
-    "/api/region-dossier",
-    "/api/satellites",
-    "/api/osint",
-    "/api/scanner",
-    "/api/sentinel",
-    "/api/sweep",
-    "/api/balloons",
-    "/api/radiation",
-    "/api/frontlines",
-    "/api/gdelt",
-    "/api/cyber-threats",
+
+# ── Sensitive endpoints (loaded from external YAML, client-editable) ──────────
+# Built-in fallback so the core never crashes if the YAML is missing/broken.
+_DEFAULT_SENSITIVE = (
+    "/api/flights", "/api/cctv", "/api/maritime", "/api/infrastructure",
+    "/api/region-dossier", "/api/satellites", "/api/osint", "/api/scanner",
+    "/api/sentinel", "/api/sweep", "/api/balloons", "/api/radiation",
+    "/api/frontlines", "/api/gdelt", "/api/cyber-threats",
 )
+
+SENSITIVE_ENDPOINTS_CONFIG = ROOT / _env(
+    "SENSITIVE_ENDPOINTS_CONFIG", "config/sensitive_endpoints.yaml"
+)
+
+
+def _load_sensitive_rules():
+    """Return (prefixes_tuple, rules_dict[prefix]->{risk,description}).
+
+    Falls back to the built-in list (warning on stderr) if the YAML is absent or
+    unparseable — the audit gate must never go down because of a config typo.
+    """
+    try:
+        import yaml  # local import: keep config importable even without pyyaml
+        with open(SENSITIVE_ENDPOINTS_CONFIG, "r", encoding="utf-8") as fh:
+            doc = yaml.safe_load(fh) or {}
+        entries = doc.get("endpoints", [])
+        rules = {}
+        for e in entries:
+            prefix = (e.get("prefix") or "").strip()
+            if not prefix:
+                continue
+            rules[prefix] = {
+                "risk": (e.get("risk") or "unknown").lower(),
+                "description": e.get("description") or "",
+            }
+        if not rules:
+            raise ValueError("no endpoints defined")
+        return tuple(rules.keys()), rules
+    except Exception as exc:  # noqa: BLE001 — robustness over precision here
+        print(f"[immutrace] WARNING: could not load {SENSITIVE_ENDPOINTS_CONFIG} "
+              f"({exc}); using built-in default sensitive prefixes.", file=sys.stderr)
+        return _DEFAULT_SENSITIVE, {p: {"risk": "unknown", "description": ""}
+                                    for p in _DEFAULT_SENSITIVE}
+
+
+SENSITIVE_PREFIXES, SENSITIVE_RULES = _load_sensitive_rules()
+
+
+def risk_level(path: str) -> str:
+    """Risk level for a path (by longest matching prefix), or 'none'."""
+    best = None
+    for prefix, rule in SENSITIVE_RULES.items():
+        if path.startswith(prefix) and (best is None or len(prefix) > len(best)):
+            best = prefix
+    return SENSITIVE_RULES[best]["risk"] if best else "none"

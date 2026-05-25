@@ -1,0 +1,16 @@
+# Example: applying IMMUTRACE to a DIFFERENT system (not OSIRIS).
+#
+# Copy this to config/sensitive_endpoints.yaml (or point SENSITIVE_ENDPOINTS_CONFIG
+# at it) and set UPSTREAM_URL to your backend. This demonstrates that switching the
+# audited system is a config change only — no code edits.
+
+endpoints:
+  - prefix: /api/customers
+    risk: high
+    description: Customer PII records
+  - prefix: /api/export
+    risk: critical
+    description: Bulk data export
+  - prefix: /admin
+    risk: critical
+    description: Administrative actions

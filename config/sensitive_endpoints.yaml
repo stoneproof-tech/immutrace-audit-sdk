@@ -1,0 +1,57 @@
+# IMMUTRACE — sensitive endpoint configuration
+#
+# Declare which upstream paths require an authorized session before IMMUTRACE
+# lets the request through. Matching is by PATH PREFIX. A client adapts this file
+# to their own system — the core code is backend-agnostic and reads it at startup.
+#
+# This active config is tuned for the OSIRIS reference demo. To point IMMUTRACE at
+# a different config file, set SENSITIVE_ENDPOINTS_CONFIG in .env.
+#
+# risk: critical | high | medium | low  (informational; surfaced in the audit UI)
+
+endpoints:
+  - prefix: /api/flights
+    risk: critical
+    description: Real-time flight tracking (commercial / private / military)
+  - prefix: /api/maritime
+    risk: critical
+    description: AIS vessel positions, naval bases, chokepoints
+  - prefix: /api/satellites
+    risk: critical
+    description: TLE-propagated satellite positions (recon / SIGINT)
+  - prefix: /api/frontlines
+    risk: critical
+    description: Live conflict frontline geometry
+  - prefix: /api/infrastructure
+    risk: critical
+    description: Critical infrastructure locations
+  - prefix: /api/scanner
+    risk: critical
+    description: Network reconnaissance scanner (SSL/DNS/subdomains/CVE)
+  - prefix: /api/osint
+    risk: critical
+    description: OSINT toolkit (ip/dns/whois/certs/bgp/cve/sweep/threats)
+  - prefix: /api/cctv
+    risk: high
+    description: Public traffic camera feeds
+  - prefix: /api/sentinel
+    risk: high
+    description: Sentinel SAR / multispectral imagery
+  - prefix: /api/gdelt
+    risk: high
+    description: Conflict-event geolocation
+  - prefix: /api/sweep
+    risk: high
+    description: Port / range sweep
+  - prefix: /api/balloons
+    risk: high
+    description: High-altitude balloon tracking
+  - prefix: /api/radiation
+    risk: high
+    description: Radiation / contamination monitoring
+  - prefix: /api/region-dossier
+    risk: medium
+    description: Country / region intelligence dossier
+  - prefix: /api/cyber-threats
+    risk: medium
+    description: Known-exploited-vulnerability and threat feeds

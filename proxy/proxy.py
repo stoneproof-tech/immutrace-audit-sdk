@@ -9,6 +9,7 @@ from fastapi import Request, Response, WebSocket
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from . import config, auth
 from .chain import sha256_hex, chain_hash, canonical_event
+from .adapters import make_adapter, UpstreamError
 
 # Serializes hash-chain writes. The chain is inherently sequential (each event's
 # prev_hash is the previous event's this_hash), so a single writer both removes
@@ -22,6 +23,10 @@ _http = httpx.AsyncClient(
     follow_redirects=False,
     limits=httpx.Limits(max_connections=200, max_keepalive_connections=50),
 )
+
+# The upstream backend is reached through a pluggable adapter (HTTP by default).
+# The audit core below is identical regardless of the upstream transport.
+_adapter = make_adapter(config.BACKEND_ADAPTER, config.UPSTREAM_URL, _http)
 
 
 # Headers we strip from the upstream response before returning to client
@@ -145,7 +150,7 @@ def _insert_event_sync(event: dict) -> str:
 
 
 async def handle_proxy_request(request: Request) -> Response:
-    """Forward a request to OSIRIS upstream and log it."""
+    """Forward a request to the upstream backend (via the adapter) and log it."""
     path = "/" + request.path_params.get("full_path", "")
     query = request.url.query
     method = request.method
@@ -176,25 +181,16 @@ async def handle_proxy_request(request: Request) -> Response:
             headers={"X-Immutrace-Gate": "blocked"},
         )
 
-    # Build forwarded request
-    upstream_url = f"{config.OSIRIS_URL}{path}"
-    fwd_headers = {
-        k: v for k, v in request.headers.items()
-        if k.lower() not in {"host", "content-length"}
-    }
-    fwd_headers["x-forwarded-for"] = remote_ip
-    fwd_headers["x-forwarded-host"] = request.headers.get("host", "")
-    fwd_headers["x-forwarded-proto"] = request.url.scheme
-
+    # Forward to the upstream backend through the configured adapter
     try:
-        upstream = await _http.request(
-            method=method,
-            url=upstream_url,
-            params=request.url.query if request.url.query else None,
-            content=body if body else None,
-            headers=fwd_headers,
+        upstream = await _adapter.forward(
+            method=method, path=path, query=query,
+            headers=dict(request.headers), body=body,
+            remote_ip=remote_ip,
+            client_host=request.headers.get("host", ""),
+            scheme=request.url.scheme,
         )
-    except httpx.RequestError as e:
+    except UpstreamError as e:
         await log_event(
             session=session,
             event_type="upstream_error",
@@ -205,10 +201,10 @@ async def handle_proxy_request(request: Request) -> Response:
         return JSONResponse(
             status_code=502,
             content={"error": "UPSTREAM_UNREACHABLE", "detail": str(e),
-                     "upstream": upstream_url},
+                     "upstream": config.UPSTREAM_URL},
         )
 
-    content_type = upstream.headers.get("content-type", "")
+    content_type = upstream.content_type
     body_resp = upstream.content
 
     # Inject the SDK shim into HTML responses
@@ -225,7 +221,7 @@ async def handle_proxy_request(request: Request) -> Response:
     )
 
     # Build response
-    resp_headers = _strip_hop_by_hop(dict(upstream.headers))
+    resp_headers = _strip_hop_by_hop(upstream.headers)
     return Response(
         content=body_resp,
         status_code=upstream.status_code,
@@ -235,19 +231,19 @@ async def handle_proxy_request(request: Request) -> Response:
 
 
 async def handle_proxy_websocket(websocket: WebSocket, full_path: str) -> None:
-    """Transparently bridge a browser WebSocket to the OSIRIS upstream.
+    """Transparently bridge a browser WebSocket to the upstream backend.
 
-    OSIRIS runs as a Next.js dev server, whose client runtime opens an HMR
-    WebSocket (/_next/webpack-hmr). A reverse proxy that only speaks HTTP would
-    reject the upgrade — which stalls the dev runtime and leaves the app frozen
-    on its splash screen. We therefore relay frames in both directions.
-    HMR traffic is dev-server infrastructure, so it is not added to the audit
-    chain (which records intelligence-data access, not hot-reload noise).
+    Dev servers (e.g. a Next.js upstream like the OSIRIS demo) open an HMR
+    WebSocket. A reverse proxy that only speaks HTTP would reject the upgrade,
+    stalling the upstream's client runtime. We relay frames in both directions.
+    WebSocket traffic is dev-server/transport infrastructure, so it is not added
+    to the audit chain (which records data access, not hot-reload noise).
     """
-    scheme = "wss" if config.OSIRIS_URL.startswith("https") else "ws"
-    host = config.OSIRIS_URL.split("://", 1)[1]
-    query = websocket.url.query
-    upstream_url = f"{scheme}://{host}/{full_path}" + (f"?{query}" if query else "")
+    try:
+        upstream_url = _adapter.ws_url("/" + full_path, websocket.url.query)
+    except NotImplementedError:
+        await websocket.close(code=1011)
+        return
 
     offered = websocket.scope.get("subprotocols") or None
 

@@ -15,7 +15,7 @@ async def lifespan(app: FastAPI):
     # Start the anchor worker
     task = asyncio.create_task(anchor_mod.anchor_worker())
     print(f"[immutrace] proxy listening on http://{config.PROXY_HOST}:{config.PROXY_PORT}")
-    print(f"[immutrace] upstream OSIRIS: {config.OSIRIS_URL}")
+    print(f"[immutrace] upstream: {config.UPSTREAM_URL} (adapter: {config.BACKEND_ADAPTER})")
     print(f"[immutrace] db: {config.DB_PATH}")
     print(f"[immutrace] anchor mode: {'MOCK' if config.MOCK_ANCHOR else 'polygon-amoy'}")
     print(f"[immutrace] dashboard: http://{config.PROXY_HOST}:{config.PROXY_PORT}/_immutrace/dashboard")

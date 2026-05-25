@@ -179,7 +179,8 @@ async def dashboard_html():
 
 @router.get("/sdk.js")
 async def sdk_js():
-    p = DASHBOARD_DIR / "sdk.js"
+    # Canonical source is the standalone, backend-agnostic observer library.
+    p = ROOT / "sdk" / "immutrace-observer.js"
     return Response(
         content=p.read_text(encoding="utf-8"),
         media_type="application/javascript",
