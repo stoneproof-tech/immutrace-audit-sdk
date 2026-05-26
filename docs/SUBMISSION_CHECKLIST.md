@@ -3,9 +3,9 @@
 Status of the submission package and the remaining human steps.
 
 ## Package status
-- [x] `TEAM.md` — founder profile, contacts (no phone), institutional recognition (Camera dei Deputati, RAI 2), Forma.Temp framing, AI-augmented build note.
+- [x] `TEAM.md` — founder profile, contacts (no phone), public visibility (Camera dei Deputati, RAI 2) as personal participation, AI-augmented build note.
 - [x] `NGI_SUBMISSION.md` — abstract, problem, approach, background, distribution, **€5,000 / 6 months / M1–M6 + budget**, comparators.
-- [x] `RISK_ASSESSMENT.md` — Adoption **LOW** (institutional, Forma.Temp — no "CNL network" claim), honest technical risks.
+- [x] `RISK_ASSESSMENT.md` — Adoption **MEDIUM** (honest, no pre-existing partnerships), honest technical risks.
 - [x] `BLOCKCHAIN_PROOFS.md` — 29 on-chain anchors, verified tx list, how-to-verify.
 - [x] `ARCHITECTURE.md`, `SECURITY_MODEL.md`, `INTEGRATION_GUIDE.md`, `DEMO_SCRIPT.md` (from Step 9).
 - [x] All `[ASK MANUEL]` placeholders removed.

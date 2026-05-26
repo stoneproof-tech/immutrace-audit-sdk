@@ -39,20 +39,18 @@ QTSP activation, key rotation, searchable encryption. See the README status tabl
 
 ## Background (team)
 
-Manuel Emilio Di Fenza is an engineer and professional trainer with **9+ years**
-of experience, working as an **external consultant (forfettario)** for **WINTIME
-S.p.A.**, a licensed Italian work agency, as Senior Technical Trainer / Curriculum
-Architect (100+ technical manuals authored; classroom training; selected as
-WINTIME's public representative for didactics).
+Manuel Emilio Di Fenza is an engineer and professional trainer with **9+ years of
+experience** in technical training (cryptography, blockchain, GDPR, EU AI Act,
+applied AI). He has authored **100+ technical manuals**.
 
-In that representative capacity he has public, verifiable institutional
-visibility: he **participated in the Award Ceremony** of the National Award "La
-Sicurezza prima di tutto" at the **Italian Chamber of Deputies (Camera dei
-Deputati), 20 February 2026** ([reference](https://www.confederazionecnl.it/salute-e-sicurezza-sul-lavoro-alla-camera-dei-deputati-confronto-istituzionale-e-consegna-del-premio-nazionale-la-sicurezza-prima-di-tutto/)),
+He has participated in two publicly verifiable events: he participated in the
+Award Ceremony of the National Award "La Sicurezza prima di tutto" at the
+**Italian Chamber of Deputies (Camera dei Deputati), 20 February 2026**
+([reference](https://www.confederazionecnl.it/salute-e-sicurezza-sul-lavoro-alla-camera-dei-deputati-confronto-istituzionale-e-consegna-del-premio-nazionale-la-sicurezza-prima-di-tutto/)) —
 an event attended by Members of Parliament, the Deputy Public Prosecutor of Rome,
-Ministry of Economy officials and the Guardia di Finanza; and he **appeared as
-WINTIME's didactics lead** on national broadcaster **RAI 2** in *"Il Nostro
-Capitale Umano"* (Premio Moige "Quality Program", on RaiPlay)
+Ministry of Economy officials and the Guardia di Finanza; and he appeared as a
+technical trainer on national broadcaster **RAI 2** in *"Il Nostro Capitale
+Umano"* (Premio Moige "Quality Program", on RaiPlay)
 ([reference](https://it.wikipedia.org/wiki/Il_nostro_capitale_umano)). Full
 detail in `TEAM.md`.
 
@@ -63,18 +61,21 @@ demonstration of that workflow.
 
 ## Distribution & Adoption Strategy
 
-**Unique adoption advantage:** the founder has direct institutional ties to
-Italian public bodies (institutional visibility at a Chamber-of-Deputies event,
-February 2026), national broadcaster recognition (RAI 2), and connection to
-Italy's structured workforce-training ecosystem via **Forma.Temp** (the bilateral
-training fund supervised by the **Italian Ministry of Labour**). Post-grant pilot
-deployment with an Italian public administration is realistically achievable
-through these existing, Ministry-recognized channels rather than through cold
-outreach.
+IMMUTRACE is distributed as **open source under AGPL-3.0** on GitHub, with Docker
+/ config-driven self-hosting so any organization can deploy independently. The
+**OSIRIS reference demo** serves as a proof-of-value for OSINT/AI vendors
+evaluating the audit layer.
 
-Open-source distribution: AGPL-3.0 on GitHub; a standalone injectable SDK;
-config-/Docker-driven self-hosting. The OSIRIS reference demo lowers the barrier
-for OSINT vendors to adopt the audit layer.
+**Honest adoption posture:** as a launch-stage open-source compliance project,
+IMMUTRACE has **no pre-existing distribution partnerships** at submission time.
+Adoption will require active post-grant business development. The founder's
+professional credentials (technical training, public visibility at the Chamber of
+Deputies and on national TV) provide credibility for outreach to potential pilot
+adopters, but do not constitute guaranteed channels.
+
+The project addresses a clear regulatory pain (AI Act Art.12 + GDPR Art.17) for a
+clear audience (DPOs, compliance officers, security auditors, OSINT vendors
+operating in regulated EU sectors).
 
 ## Funding
 
