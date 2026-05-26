@@ -3,7 +3,7 @@
 ## Founder
 
 **Manuel Emilio Di Fenza** — founder and lead developer of IMMUTRACE.
-- Email: manuelemiliodifenza@gmail.com
+- Email: decision.acc@gmail.com
 - Location: Naples, Italy
 
 Manuel is an engineer and professional trainer with **9+ years of experience**
