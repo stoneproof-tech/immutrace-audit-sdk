@@ -23,3 +23,7 @@ demos/osiris/custodians/*.pem
 data/*.key
 # Backup snapshots of the audit DB
 data/*.backup-*
+
+# Backup files (local only, never commit)
+LICENSE.bak.*
+*.bak
