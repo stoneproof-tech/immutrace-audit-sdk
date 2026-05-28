@@ -54,12 +54,21 @@ def _fetch_session_data(session_id: str) -> dict:
     return {"session": dict(sess), "events": events, "anchors": anchors}
 
 
+def _mask_encrypted(v):
+    """Never render ciphertext in the report: encrypted-at-rest values -> [ENCRYPTED]."""
+    s = "" if v is None else str(v)
+    return "[ENCRYPTED]" if s.startswith("enc:v1:") else s
+
+
 def build_session_pdf(session_id: str) -> dict:
     """Render the audit PDF for one session. Returns {path, filename, sha256}."""
     data = _fetch_session_data(session_id)
     sess = data["session"]
     events = data["events"]
     anchors = data["anchors"]
+    enc_count = sum(1 for e in events
+                    if str(e.get("justification") or "").startswith("enc:v1:")
+                    or str(e.get("query") or "").startswith("enc:v1:"))
 
     verify_result = verify_chain(events) if events else {"ok": False, "count": 0}
 
@@ -121,10 +130,13 @@ def build_session_pdf(session_id: str) -> dict:
             ["Investigator", sess["actor"]],
             ["Activity",     sess["activity_type"]],
             ["Case ID",      sess["case_id"] or "—"],
-            ["Justification", sess["justification"]],
+            ["Justification", _mask_encrypted(sess["justification"])],
             ["Created",      sess["created_at"]],
             ["Expires",      sess["expires_at"]],
             ["Revoked",      "yes" if sess["revoked"] else "no"],
+            ["Encryption",   (f"{enc_count} event field(s) encrypted at rest (AES-256-GCM); "
+                              "shown as [ENCRYPTED], recoverable only with the master key "
+                              "or erased per GDPR Art.17") if enc_count else "none"],
         ],
         colWidths=[3.5 * cm, 13 * cm],
     )

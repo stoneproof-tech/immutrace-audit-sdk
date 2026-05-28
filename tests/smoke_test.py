@@ -125,7 +125,7 @@ def main():
         case("anchor has tx_hash",
              bool(j["anchor"].get("tx_hash")))
         case("anchor chain identified",
-             j["anchor"].get("chain") in ("mock", "polygon-amoy"))
+             j["anchor"].get("chain") in ("mock", "polygon-amoy", "polygon-mainnet"))
 
     # 10. PDF export
     r = httpx.get(f"{PROXY}/_immutrace/audit/export/{sid}.pdf", timeout=15)

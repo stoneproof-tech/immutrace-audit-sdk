@@ -1,4 +1,15 @@
-"""Authorization gate: session creation + token validation."""
+"""Legacy investigation-session authorization (DEPRECATED).
+
+⚠️ DEPRECATED — single-user "investigation session" model (justification → blanket
+access to all sensitive endpoints, no login). Superseded in Step 2/3 by multi-user
+login (identity.py) + supervisor approval workflow (workflow.py). Retained ONLY as a
+backward-compatible fallback and because the base smoke test still uses it.
+
+TODO (Step 9 follow-up): remove this module and the legacy gate branch in
+proxy.handle_proxy_request once the smoke / e2e_encryption / e2e_timestamp suites
+are migrated to the login + approval flow. Tracked as a deliberate, tested change
+(not done now to avoid regressing the 146-test suite at the wire).
+"""
 import uuid
 import sqlite3
 from datetime import datetime, timedelta, timezone

@@ -88,6 +88,143 @@
     return currentSession;
   }
 
+  // ── Identity (Step 2: multi-user login) ──
+  let currentUser = null;
+
+  async function loadAuth() {
+    try {
+      const r = await window.__imt_orig_fetch("/_immutrace/auth/me",
+        { credentials: "same-origin" });
+      const j = await r.json();
+      currentUser = j.authenticated ? j : null;
+    } catch (e) { currentUser = null; }
+    return currentUser;
+  }
+
+  function renderIdentity(bannerEl) {
+    if (currentUser) {
+      if (currentUser.role === "supervisor" || currentUser.role === "admin") {
+        bannerEl.append($("a", { href: "/_immutrace/supervisor/queue", target: "_blank" }, "Approval queue ↗"));
+      }
+      if (currentUser.role === "admin") {
+        bannerEl.append($("a", { href: "/_immutrace/admin/keys", target: "_blank" }, "Key custody ↗"));
+      }
+      if (currentUser.role === "custodian") {
+        bannerEl.append($("a", { href: "/_immutrace/custodian/panel", target: "_blank" }, "Custodian panel ↗"));
+      }
+      bannerEl.append(
+        $("a", { href: "/_immutrace/analyst/requests", target: "_blank" }, "My requests ↗"),
+        $("span", { style: { color: "#bcd6ff", fontWeight: "600" } },
+          `\u{1F464} ${currentUser.username} (${currentUser.role})`),
+        $("button", { on: { click: async () => {
+          await window.__imt_orig_fetch("/_immutrace/auth/logout",
+            { method: "POST", credentials: "same-origin" });
+          location.reload();
+        }}}, "Logout"),
+      );
+    } else {
+      bannerEl.append($("button", { on: { click: () => showLoginModal() } }, "Login"));
+    }
+  }
+
+  function showLoginModal() {
+    // Only one login modal at a time (multiple sensitive 401s would otherwise stack it).
+    if (document.querySelector(".imt-login-overlay")) return;
+    injectStyle();
+    const overlay = $("div", { class: "imt-overlay imt-login-overlay" });
+    const modal = $("div", { class: "imt-modal" });
+    const heading = $("h2", {}, $("span", { class: "imt-shield" }), "Sign in to IMMUTRACE");
+    const sub = $("p", { class: "imt-sub" }, "Authenticate with your IMMUTRACE account.");
+    const inUser = $("input", { type: "text", placeholder: "username",
+      value: localStorage.getItem("imt:lastUser") || "" });
+    const inPass = $("input", { type: "password", placeholder: "password" });
+    const err = $("div", { class: "imt-error" });
+    const btn = $("button", { class: "imt-btn" }, "Sign in");
+    btn.addEventListener("click", async () => {
+      err.textContent = ""; btn.disabled = true;
+      try {
+        const r = await window.__imt_orig_fetch("/_immutrace/auth/login", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ username: inUser.value.trim(), password: inPass.value }),
+        });
+        if (!r.ok) throw new Error(r.status === 401 ? "Invalid credentials" : "Login failed");
+        localStorage.setItem("imt:lastUser", inUser.value.trim());
+        location.reload();
+      } catch (e) { err.textContent = e.message; btn.disabled = false; }
+    });
+    inPass.addEventListener("keydown", (e) => { if (e.key === "Enter") btn.click(); });
+    const cancel = $("button", { class: "imt-btn-secondary",
+      on: { click: () => overlay.remove() } }, "Cancel");
+    modal.append(heading, sub,
+      $("label", {}, "Username"), inUser,
+      $("label", {}, "Password"), inPass, err,
+      $("div", { class: "imt-actions" }, cancel, btn));
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    setTimeout(() => inUser.focus(), 100);
+  }
+
+  // Step 3: request supervisor authorization for a blocked endpoint.
+  function showRequestModal(targetPath) {
+    if (document.querySelector(".imt-request-overlay")) return;  // one at a time
+    injectStyle();
+    const overlay = $("div", { class: "imt-overlay imt-request-overlay" });
+    const modal = $("div", { class: "imt-modal" });
+    const inCase = $("input", { type: "text", placeholder: "e.g. CASE-2026-0142 (optional)",
+      value: localStorage.getItem("imt:lastCase") || "" });
+    const inUrg = $("select");
+    for (const u of ["low", "normal", "high"]) {
+      const o = document.createElement("option"); o.value = o.textContent = u; inUrg.appendChild(o);
+    }
+    inUrg.value = "normal";
+    const inJust = $("textarea", { placeholder:
+      "Describe the legitimate purpose of this access (≥ 10 chars)." });
+    const counter = $("div", { class: "imt-counter" }, "0 / 10 chars minimum");
+    const err = $("div", { class: "imt-error" });
+    const btn = $("button", { class: "imt-btn" }, "Submit request");
+    btn.disabled = true;
+    inJust.addEventListener("input", () => {
+      const n = inJust.value.trim().length;
+      counter.textContent = `${n} / 10 chars minimum`;
+      btn.disabled = n < 10;
+    });
+    btn.addEventListener("click", async () => {
+      err.textContent = ""; btn.disabled = true;
+      try {
+        const r = await window.__imt_orig_fetch("/_immutrace/approval/request", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ target_path: targetPath, justification: inJust.value.trim(),
+            case_id: inCase.value.trim(), urgency: inUrg.value }),
+        });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.detail || "Request failed"); }
+        localStorage.setItem("imt:lastCase", inCase.value.trim());
+        modal.innerHTML = "";
+        modal.append(
+          $("h2", {}, $("span", { class: "imt-shield" }), "Request submitted"),
+          $("p", { class: "imt-sub" },
+            `Awaiting supervisor approval for ${targetPath}. Once approved, reload the page to gain access.`),
+          $("div", { class: "imt-actions" },
+            $("button", { class: "imt-btn", on: { click: () => overlay.remove() } }, "Close")),
+        );
+      } catch (e) { err.textContent = e.message; btn.disabled = false; }
+    });
+    const cancel = $("button", { class: "imt-btn-secondary", on: { click: () => overlay.remove() } }, "Cancel");
+    modal.append(
+      $("h2", {}, $("span", { class: "imt-shield" }), "Request authorization"),
+      $("p", { class: "imt-sub" },
+        `Access to ${targetPath} requires supervisor approval. Your request is chained and auditable.`),
+      $("label", {}, "Justification (≥ 10 chars)"), inJust, counter,
+      $("div", { class: "imt-row" },
+        $("div", {}, $("label", {}, "Urgency"), inUrg),
+        $("div", {}, $("label", {}, "Case ID (optional)"), inCase)),
+      err, $("div", { class: "imt-actions" }, cancel, btn));
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    setTimeout(() => inJust.focus(), 100);
+  }
+
   function showBanner() {
     let b = document.getElementById("imt-banner");
     if (currentSession) {
@@ -115,6 +252,7 @@
           }}
         }, "End session"),
       );
+      renderIdentity(b);
     } else if (b) {
       b.remove();
       document.body.style.paddingTop = "";
@@ -228,12 +366,20 @@
   window.fetch = async function (input, init) {
     const r = await window.__imt_orig_fetch(input, init);
     if (r.status === 401 && r.headers.get("X-Immutrace-Gate") === "blocked") {
-      // Re-prompt and retry once
-      await new Promise((resolve) => {
-        pendingResolvers.push(resolve);
-        showModal({ reason: `Authorization required to access ${typeof input === "string" ? input : input.url}.` });
-      });
-      return window.__imt_orig_fetch(input, init);
+      // Identity comes first: you must be logged in before you can be authorized.
+      if (!currentUser) { await loadAuth(); }
+      if (!currentUser) {
+        showLoginModal();   // log in, then reload re-issues the request
+        return r;
+      }
+      // Logged in → request supervisor approval for this endpoint (pre-auth model).
+      // No automatic retry: access is granted only after a supervisor approves,
+      // at which point the analyst reloads.
+      const url = typeof input === "string" ? input : (input && input.url) || "";
+      let path = url;
+      try { path = new URL(url, location.origin).pathname; } catch (e) {}
+      showRequestModal(path);
+      return r;
     }
     return r;
   };
@@ -241,6 +387,7 @@
   // Boot: load current session, show banner OR prompt
   async function boot() {
     await loadSession();
+    await loadAuth();
     if (currentSession) {
       showBanner();
     } else {
@@ -250,17 +397,17 @@
       const off = $("div", { id: "imt-banner", class: "imt-banner",
         style: { background: "linear-gradient(90deg, #3a1414, #2a0e0e)",
                  color: "#ffb4b4", borderColor: "#5a2424" } });
+      const msg = currentUser
+        ? "Sensitive endpoints require supervisor approval"
+        : "Log in to access — sensitive endpoints require approval";
       off.append(
         $("span", { class: "imt-dot", style: { background: "#ff5a5a", boxShadow: "0 0 8px #ff5a5a" } }),
-        $("span", {}, "IMMUTRACE AUDIT — NO SESSION"),
-        $("span", { style: { color: "#98a8c5", fontWeight: "400" } },
-          "Sensitive endpoints will trigger an authorization prompt"),
+        $("span", {}, "IMMUTRACE AUDIT — NO ACTIVE AUTHORIZATION"),
+        $("span", { style: { color: "#98a8c5", fontWeight: "400" } }, msg),
         $("span", { class: "imt-grow" }),
         $("a", { href: "/_immutrace/dashboard", target: "_blank" }, "Dashboard ↗"),
-        $("button", {
-          on: { click: () => showModal() }
-        }, "Start session"),
       );
+      renderIdentity(off);
       document.body.appendChild(off);
     }
   }

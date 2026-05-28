@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IMMUTRACE — Key custody (admin)</title>
+<style>
+  body{margin:0;background:#0a142a;color:#e6edf7;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{padding:14px 20px;border-bottom:1px solid #233a6f;display:flex;gap:12px;align-items:center}
+  header h1{font-size:16px;margin:0;color:#ffd86b}
+  header .who{margin-left:auto;color:#98a8c5;font-size:13px}
+  main{padding:20px;max-width:1000px;margin:0 auto}
+  .card{background:#0e1a36;border:1px solid #233a6f;border-radius:10px;padding:16px;margin-bottom:14px}
+  .k{color:#98a8c5}.v{font-weight:700}
+  .pill{font-size:11px;text-transform:uppercase;padding:2px 10px;border-radius:10px;border:1px solid #233a6f}
+  .ok{background:#13261d;color:#5ff0bd;border-color:#1f5a40}.no{background:#3a1414;color:#ff9b9b;border-color:#5a2424}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #16243f;font-size:13px}
+  button{border:0;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;font-size:13px;margin-right:6px}
+  .primary{background:#ffd86b;color:#0a142a}.go{background:#00e3a5;color:#03261c}.sec{background:transparent;color:#98a8c5;border:1px solid #233a6f}
+  .err{color:#ff8b8b}.log{font-family:monospace;font-size:12px;color:#9fe0c0;white-space:pre-wrap;margin-top:8px}
+  a{color:#ffd86b}
+</style></head>
+<body>
+<header><h1>◆ IMMUTRACE — Master key custody</h1><span class="who" id="who"></span></header>
+<main id="main"><div class="card">Loading…</div></main>
+<script>
+const F=(u,o)=>fetch(u,Object.assign({credentials:"same-origin",headers:{"Content-Type":"application/json"}},o||{}));
+let attempt=null;
+function elog(s){const l=document.getElementById("log"); if(l) l.textContent += s+"\n";}
+async function render(){
+  const main=document.getElementById("main");
+  const me=await (await F("/_immutrace/auth/me")).json();
+  if(!me.authenticated){ main.innerHTML='<div class="card err">Not logged in.</div>'; return; }
+  document.getElementById("who").textContent=`${me.username} (${me.role})`;
+  if(me.role!=="admin"){ main.innerHTML='<div class="card err">Admin role required.</div>'; return; }
+  const st=await (await F("/_immutrace/keys/status")).json();
+  main.innerHTML="";
+  const c=document.createElement("div"); c.className="card";
+  c.innerHTML=`<div><span class="k">Status:</span> `+
+    `<span class="pill ${st.configured?'ok':'no'}">${st.configured?'configured':'not set up'}</span> `+
+    `<span class="pill ${st.unlocked?'ok':'no'}">${st.unlocked?'unlocked (key in RAM)':'locked'}</span></div>`+
+    `<div style="margin-top:8px"><span class="k">Threshold:</span> <span class="v">${st.threshold}-of-${st.num_shares}</span> · <span class="k">active shards:</span> <span class="v">${st.shards_active}</span></div>`+
+    `<table><tr><th>#</th><th>Custodian</th><th>Role</th><th>Login</th></tr>`+
+    st.custodians.map(x=>`<tr><td>${x.id}</td><td>${x.name}</td><td>${x.role_label}</td><td>${x.username||''}</td></tr>`).join("")+`</table>`+
+    `<div style="margin-top:12px"><button class="primary" id="setup">${st.configured?'Re-key (new master key)':'Initialize master key (3-of-5)'}</button></div>`;
+  main.append(c);
+  document.getElementById("setup").onclick=async()=>{ if(st.configured && !confirm("Re-key? This replaces the current master key.")) return; const r=await F("/_immutrace/keys/setup",{method:"POST"}); if(r.ok){alert("Master key set up and split 3-of-5.");render();} else alert("Setup failed: "+r.status); };
+
+  if(st.configured){
+    const c2=document.createElement("div"); c2.className="card";
+    c2.innerHTML=`<h3 style="margin:0 0 8px;color:#ffd86b">Reassembly ceremony</h3>`+
+      `<div class="k" style="margin-bottom:8px">Reconstruct the master key from k custodian shares (RAM only).</div>`+
+      `<button class="primary" id="start">Start ceremony</button> <span id="att"></span>`+
+      `<div id="subs" style="margin-top:10px"></div>`+
+      `<div class="log" id="log"></div>`;
+    main.append(c2);
+    document.getElementById("start").onclick=async()=>{ const r=await F("/_immutrace/keys/reassembly/start",{method:"POST"}); const j=await r.json(); attempt=j.attempt_id; document.getElementById("att").textContent=`— attempt #${attempt} (need ${j.threshold} shares)`; elog(`Started attempt #${attempt}`);
+      const subs=document.getElementById("subs"); subs.innerHTML="";
+      st.custodians.forEach(x=>{ const b=document.createElement("button"); b.className="go"; b.textContent=`Submit #${x.id} ${x.role_label}`; b.onclick=async()=>{ const rr=await F(`/_immutrace/keys/reassembly/${attempt}/submit-share`,{method:"POST",body:JSON.stringify({custodian_id:x.id})}); const jj=await rr.json(); elog(rr.ok?`+ share ${x.id} (${jj.shares_collected}/${jj.threshold})`:`! share ${x.id} failed ${rr.status}`); }; subs.append(b); });
+      const fin=document.createElement("button"); fin.className="primary"; fin.textContent="Finalize"; fin.onclick=async()=>{ const rr=await F(`/_immutrace/keys/reassembly/${attempt}/finalize`,{method:"POST"}); elog(rr.ok?"✓ Finalized — master key unlocked in RAM":`✗ Finalize failed (${rr.status}): `+(await rr.json()).detail); if(rr.ok) setTimeout(render,800); }; subs.append(fin);
+    };
+  }
+}
+render();
+</script>
+</body></html>
