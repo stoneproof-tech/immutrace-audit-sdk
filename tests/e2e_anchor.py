@@ -45,18 +45,23 @@ def main():
         config.ANCHOR_PRIVATE_KEY = _orig_key
     check("refuses to send when key != anchor wallet (no tx sent)", raised)
 
-    # read-only mainnet pre-flight
-    st = anchor.verify_mainnet_state()
-    check("chain id 137", st["chain_id"] == 137 and st["chain_ok"], f"got {st['chain_id']}")
-    check("wallet is the mainnet anchor wallet",
-          st["wallet"].lower() == "0x1ec495d01e91a1929c651680cd7e5758dbf412c2")
-    check("balance > 0", st["balance_pol"] > 0, f"bal={st['balance_pol']}")
-    check("nonce >= 17 (historical anchors)", st["nonce"] >= 17, f"nonce={st['nonce']}")
+    # The mainnet pre-flight + gas estimate require a live RPC and real wallet,
+    # so they only run against the real chain. In mock mode there is nothing to probe.
+    if config.MOCK_ANCHOR:
+        print("[SKIP] mainnet pre-flight + gas estimate (MOCK_ANCHOR=true)")
+    else:
+        # read-only mainnet pre-flight
+        st = anchor.verify_mainnet_state()
+        check("chain id 137", st["chain_id"] == 137 and st["chain_ok"], f"got {st['chain_id']}")
+        check("wallet is the mainnet anchor wallet",
+              st["wallet"].lower() == "0x1ec495d01e91a1929c651680cd7e5758dbf412c2")
+        check("balance > 0", st["balance_pol"] > 0, f"bal={st['balance_pol']}")
+        check("nonce >= 17 (historical anchors)", st["nonce"] >= 17, f"nonce={st['nonce']}")
 
-    # DRY-RUN gas estimate (NO send)
-    est = anchor.estimate_anchor(root)
-    check("gas estimate sane (< 10x of ~30k)", 0 < est["gas"] < 300_000, f"gas={est['gas']}")
-    check("cost positive & small (< 1 POL)", 0 < est["cost_pol"] < 1.0, f"cost={est['cost_pol']}")
+        # DRY-RUN gas estimate (NO send)
+        est = anchor.estimate_anchor(root)
+        check("gas estimate sane (< 10x of ~30k)", 0 < est["gas"] < 300_000, f"gas={est['gas']}")
+        check("cost positive & small (< 1 POL)", 0 < est["cost_pol"] < 1.0, f"cost={est['cost_pol']}")
 
     print(f"\nPASS: {PASS}    FAIL: {FAIL}")
     sys.exit(1 if FAIL else 0)

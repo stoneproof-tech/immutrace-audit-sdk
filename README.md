@@ -40,7 +40,7 @@ Point it at any backend by setting `UPSTREAM_URL` and editing
 
 ## On-chain proof (Polygon mainnet)
 
-18+ real anchors on the wallet `0x1Ec495d01e91a1929C651680cd7E5758dBF412C2`. First verified test anchor:
+29 real anchors on the wallet `0x1Ec495d01e91a1929C651680cd7E5758dBF412C2`. First verified test anchor:
 [`0x6ce8629c…b23d664e`](https://polygonscan.com/tx/0x6ce8629c4a3f2da6e40ef7485e312e0df7ec7ee3deeef2529903204fb23d664e)
 (block 87427721, CALLDATA `immutrace-ledgereye-audit:<merkle_root>`).
 
