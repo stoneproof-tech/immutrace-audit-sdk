@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from . import (config, db, proxy as proxy_mod, dashboard as dash_mod,
                anchor as anchor_mod, identity as identity_mod, workflow as workflow_mod,
-               keymgmt as keymgmt_mod, timestamp as timestamp_mod)
+               keymgmt as keymgmt_mod, timestamp as timestamp_mod, attest as attest_mod)
 
 # Initialize DB schema
 db.init_sync()
@@ -43,6 +43,7 @@ app.include_router(identity_mod.router)
 app.include_router(workflow_mod.router)
 app.include_router(keymgmt_mod.router)
 app.include_router(timestamp_mod.router)
+app.include_router(attest_mod.router)
 
 
 @app.get("/_immutrace/health")

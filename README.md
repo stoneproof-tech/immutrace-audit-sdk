@@ -15,6 +15,28 @@ data can be irreversibly erased without breaking the audit trail.
 
 **License:** AGPL-3.0 · **Reference demo:** [OSIRIS](https://github.com/simplifaisoul/osiris) (Next.js OSINT dashboard)
 
+## Two entry points: *observe* and *certify*
+
+IMMUTRACE has the same trust core (hash chain + encryption + timestamping +
+Polygon anchoring) reachable through **two complementary doors**:
+
+1. **Reverse proxy — *observe*.** Sit transparently in front of any backend and
+   record the data-access traffic that flows through it (who read what, under
+   which authorization), with **zero changes to the audited system**. This is
+   implicit attestation: the audit trail is a by-product of using the system.
+
+2. **Attestation API — *certify any decision*.** An explicit endpoint where any
+   system hands IMMUTRACE a structured description of a decision — an AI model's
+   output, a credit ruling, a GDPR lawful-basis call, a governance vote — and
+   gets back a tamper-evident, blockchain-anchorable **receipt**. Use it when the
+   thing you must prove isn't an HTTP request but a *decision*.
+
+Both produce the same kind of evidence — one event in the same global hash chain,
+anchored on the same wallet — and both verify the same public, key-free way. See
+[docs/ATTESTATION_PROTOCOL.md](docs/ATTESTATION_PROTOCOL.md) for the attestation
+field model, the API/Python/CLI usage, and what to certify for AI Act / GDPR /
+credit / governance.
+
 ## Quick start (Docker-free, local)
 
 ```bash
@@ -36,6 +58,7 @@ Point it at any backend by setting `UPSTREAM_URL` and editing
 - **eIDAS-ready timestamping** — adapter pattern: local signed timestamps now; Aruba/InfoCert/Namirial QTSP via config when contracted.
 - **Polygon mainnet anchoring** — merkle roots of event batches anchored on-chain (CALLDATA pattern), ~0.007 POL/batch; hardened unattended worker.
 - **Audit dashboard + signed PDF export** — filters (user / risk / date), approval queue, custodian panel, worker status; PDF shows encrypted fields as `[ENCRYPTED]`.
+- **Universal decision attestation** — `POST /_immutrace/attest` certifies ANY decision (AI output, credit/GDPR/governance ruling) into the same chain + anchor; PUBLIC key-free verification via `GET /_immutrace/attest/verify/{hash}`. Dependency-free Python/CLI client (`immutrace_client.py`).
 - **Backend-agnostic** — adapter pattern for HTTP (implemented), GraphQL/gRPC (stubs); standalone injectable JS SDK (`sdk/immutrace-observer.js`).
 
 ## On-chain proof (Polygon mainnet)
